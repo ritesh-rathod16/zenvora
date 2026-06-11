@@ -1,8 +1,7 @@
 fastapi==0.115.12
 uvicorn[standard]==0.34.0
 
-pydantic==2.10.6
-pydantic_core==2.27.2
+pydantic>=2.11.7,<3.0.0
 starlette==0.46.2
 
 python-dotenv==1.0.1
@@ -21,7 +20,7 @@ python-jose[cryptography]==3.3.0
 PyJWT==2.10.1
 cryptography==44.0.2
 
-supabase==2.18.1
+supabase>=2.18.1
 
 redis==5.2.1
 
