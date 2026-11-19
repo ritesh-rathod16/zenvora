@@ -10,7 +10,7 @@ from .routers import (
     auth, users, chats, posts, discovery, 
     voice_rooms, reports, media, admin, 
     icebreakers, social, stories, calls, ghost, swipe, reels,
-    communities, ai, creator, livestream, monetization, connect, notifications, recommendation
+    communities, ai, creator, livestream, monetization, connect, notifications, recommendation, notes
 )
 from .websocket.signaling import sio_app, sio, set_pairing
 from .services.matchmaking import matchmaker
@@ -151,5 +151,6 @@ app.include_router(monetization, prefix="/monetization", tags=["Monetization & G
 app.include_router(connect, prefix="/connect", tags=["Zenvora Connect"])
 app.include_router(notifications, prefix="/notifications", tags=["Notifications & Activity"])
 app.include_router(recommendation, prefix="/recommendations", tags=["ZENVORA AI Recommendations"])
+app.include_router(notes, prefix="/notes", tags=["Instagram Notes"])
 
 app.mount("/socket.io", sio_app)

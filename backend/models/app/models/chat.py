@@ -38,10 +38,14 @@ class Chat(Document):
     custom_theme: Optional[str] = None
     muted_by: List[str] = [] # Usernames who muted this chat
     
-    # Group chat support
+    # Group chat & Chat management support
     is_group: bool = False
     group_name: Optional[str] = None
+    group_photo_url: Optional[str] = None
     group_admin_ids: List[str] = []
+    pinned_by: List[str] = [] # Usernames who pinned this chat
+    archived_by: List[str] = [] # Usernames who archived this chat
+    category_by_user: Dict[str, str] = Field(default_factory=dict) # username -> "primary" or "general"
 
     class Settings:
         name = "chats"

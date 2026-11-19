@@ -405,3 +405,67 @@ async def delete_chat(chat_id: str, current_user: User = Depends(get_current_use
     await Message.find(Message.chat_id == chat_id).delete()
     await chat.delete()
     return {"message": "Chat deleted"}
+
+class CreateGroupRequest(BaseModel):
+    group_name: str = Field(..., min_length=1, max_length=50)
+    participants: List[str] = Field(..., min_items=1)
+    group_photo_url: Optional[str] = None
+
+@router.post("/group/create")
+async def create_group_chat(body: CreateGroupRequest, current_user: User = Depends(get_current_user)):
+    me = current_user.anonymous_username
+    members = list(set(body.participants + [me]))
+
+    chat = Chat(
+        participants=members,
+        is_group=True,
+        group_name=body.group_name.strip(),
+        group_photo_url=body.group_photo_url,
+        group_admin_ids=[me],
+        last_message=f"@{me} created group '{body.group_name}'"
+    )
+    await chat.insert()
+
+    msg = Message(
+        chat_id=str(chat.id),
+        sender_id=me,
+        content=f"@{me} created group '{body.group_name}'",
+        message_type="system"
+    )
+    await msg.insert()
+
+    return chat
+
+@router.post("/{chat_id}/pin")
+async def toggle_pin_chat(chat_id: str, current_user: User = Depends(get_current_user)):
+    chat = await Chat.get(chat_id)
+    if not chat or current_user.anonymous_username not in chat.participants:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    me = current_user.anonymous_username
+    if me in chat.pinned_by:
+        chat.pinned_by.remove(me)
+        pinned = False
+    else:
+        chat.pinned_by.append(me)
+        pinned = True
+
+    await chat.save()
+    return {"success": True, "pinned": pinned}
+
+@router.post("/{chat_id}/archive")
+async def toggle_archive_chat(chat_id: str, current_user: User = Depends(get_current_user)):
+    chat = await Chat.get(chat_id)
+    if not chat or current_user.anonymous_username not in chat.participants:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    me = current_user.anonymous_username
+    if me in chat.archived_by:
+        chat.archived_by.remove(me)
+        archived = False
+    else:
+        chat.archived_by.append(me)
+        archived = True
+
+    await chat.save()
+    return {"success": True, "archived": archived}
