@@ -22,6 +22,7 @@ from ..models.match_queue import MatchQueue
 from ..models.comment import Comment
 from ..models.reel import Reel
 from ..models.livestream import LiveStream
+from ..recommendation.models.interaction import InteractionEvent, UserInterestProfile
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -34,7 +35,8 @@ DOCUMENT_MODELS = [
     Report, Notification, AdminLog,
     PlatformSettings, Story, CallSession,
     GhostIdentity, Follow, FollowRequest,
-    Swipe, Match, MatchQueue, Comment, Reel, LiveStream
+    Swipe, Match, MatchQueue, Comment, Reel, LiveStream,
+    InteractionEvent, UserInterestProfile
 ]
 
 async def init_db() -> AsyncIOMotorDatabase:

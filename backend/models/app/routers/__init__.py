@@ -22,4 +22,5 @@ from .livestream import router as livestream
 from .monetization import router as monetization
 from .connect import router as connect
 from .notifications import router as notifications
+from ..recommendation.routers.recommendation_router import router as recommendation
 from .websockets import websocket_endpoint
