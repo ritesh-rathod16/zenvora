@@ -49,13 +49,6 @@ class _FeedScreenState extends State<FeedScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0F0F1A),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {},
-        backgroundColor: const Color(0xFF6C63FF),
-        elevation: 8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        child: const Icon(Icons.add_comment_rounded, color: Colors.white),
-      ),
       body: RefreshIndicator(
         onRefresh: _fetchFeed,
         color: const Color(0xFF6C63FF),

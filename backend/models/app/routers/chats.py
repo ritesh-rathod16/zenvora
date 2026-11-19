@@ -453,19 +453,17 @@ async def toggle_pin_chat(chat_id: str, current_user: User = Depends(get_current
     await chat.save()
     return {"success": True, "pinned": pinned}
 
-@router.post("/{chat_id}/archive")
-async def toggle_archive_chat(chat_id: str, current_user: User = Depends(get_current_user)):
+class ChatCategoryUpdate(BaseModel):
+    category: str = Field(..., description="primary or general")
+
+@router.patch("/{chat_id}/category")
+async def update_chat_category(chat_id: str, body: ChatCategoryUpdate, current_user: User = Depends(get_current_user)):
     chat = await Chat.get(chat_id)
     if not chat or current_user.anonymous_username not in chat.participants:
         raise HTTPException(status_code=404, detail="Chat not found")
-
     me = current_user.anonymous_username
-    if me in chat.archived_by:
-        chat.archived_by.remove(me)
-        archived = False
-    else:
-        chat.archived_by.append(me)
-        archived = True
-
+    if chat.category_by_user is None:
+        chat.category_by_user = {}
+    chat.category_by_user[me] = body.category
     await chat.save()
-    return {"success": True, "archived": archived}
+    return {"success": True, "category": body.category}
