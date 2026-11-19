@@ -257,7 +257,17 @@ class _ReelItemWidgetState extends State<_ReelItemWidget> {
       _likesCount += _isLiked ? 1 : -1;
     });
     try {
-      await widget.apiService.post('/reels/${widget.reel['id']}/like', {});
+      final reelId = widget.reel['id'] ?? widget.reel['_id'] ?? '';
+      await widget.apiService.post('/reels/$reelId/like', {});
+      if (_isLiked) {
+        widget.apiService.post('/recommendations/events', {
+          'content_id': reelId,
+          'content_type': 'reel',
+          'event_type': 'like',
+          'author_id': widget.reel['author_id']?.toString() ?? '',
+          'recommendation_source': 'reels'
+        });
+      }
     } catch (_) {}
   }
 

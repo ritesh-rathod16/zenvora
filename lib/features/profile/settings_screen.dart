@@ -127,6 +127,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _resetAiPersonalization() async {
+    try {
+      final res = await _apiService.post('/recommendations/reset', {});
+      if (res.statusCode == 200 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("ZENVORA AI Personalization reset successfully!")),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e")),
+        );
+      }
+    }
+  }
+
   Future<void> _changePassword() async {
     if (_currentPassController.text.isEmpty || _newPassController.text.length < 6) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -338,6 +355,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text("Change Password", style: TextStyle(color: Colors.white)),
                   trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white24),
                   onTap: _showChangePasswordDialog,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.psychology_rounded, color: Color(0xFF6C63FF)),
+                  title: const Text("Reset ZENVORA AI Personalization", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                  subtitle: const Text("Clear recommendations history and interest profile", style: TextStyle(color: Colors.white38, fontSize: 11)),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white24),
+                  onTap: _resetAiPersonalization,
                 ),
 
                 // 3. Notifications
