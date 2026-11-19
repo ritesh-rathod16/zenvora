@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'socket_service.dart';
 
@@ -15,6 +16,8 @@ class WebRTCService {
   final Map<String, dynamic> _iceServers = {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
+      {'urls': 'stun:stun1.l.google.com:19302'},
+      {'urls': 'stun:stun2.l.google.com:19302'},
     ]
   };
 
@@ -26,23 +29,38 @@ class WebRTCService {
   };
 
   Future<void> initWebRTC() async {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
-      'video': {
-        'facingMode': 'user',
-      },
-    });
-    
-    if (onLocalStream != null) onLocalStream!(localStream!);
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': {
+          'facingMode': 'user',
+          'width': {'ideal': 640},
+          'height': {'ideal': 480},
+        },
+      });
 
+      if (onLocalStream != null && localStream != null) {
+        onLocalStream!(localStream!);
+      }
+
+      await _createPeerConnectionAndTracks();
+      _setupSocketSignaling();
+    } catch (e) {
+      debugPrint("WebRTC init error: $e");
+    }
+  }
+
+  Future<void> _createPeerConnectionAndTracks() async {
     _peerConnection = await createPeerConnection(_iceServers, _config);
 
-    localStream!.getTracks().forEach((track) {
-      _peerConnection!.addTrack(track, localStream!);
-    });
+    if (localStream != null) {
+      for (var track in localStream!.getTracks()) {
+        await _peerConnection!.addTrack(track, localStream!);
+      }
+    }
 
     _peerConnection!.onIceCandidate = (candidate) {
-      if (candidate != null) {
+      if (candidate.candidate != null) {
         socketService.sendIceCandidate({
           'candidate': candidate.candidate,
           'sdpMid': candidate.sdpMid,
@@ -58,38 +76,109 @@ class WebRTCService {
       }
     };
 
-    // Set up socket listeners
+    _peerConnection!.onConnectionState = (state) {
+      debugPrint("Peer connection state: $state");
+    };
+  }
+
+  void _setupSocketSignaling() {
     socketService.onOffer = (data) async {
-      await _peerConnection!.setRemoteDescription(
-        RTCSessionDescription(data['sdp'], data['type']),
-      );
-      RTCSessionDescription answer = await _peerConnection!.createAnswer();
-      await _peerConnection!.setLocalDescription(answer);
-      socketService.sendAnswer({'sdp': answer.sdp, 'type': answer.type});
+      try {
+        if (_peerConnection == null) return;
+        await _peerConnection!.setRemoteDescription(
+          RTCSessionDescription(data['sdp'], data['type']),
+        );
+        RTCSessionDescription answer = await _peerConnection!.createAnswer();
+        await _peerConnection!.setLocalDescription(answer);
+        socketService.sendAnswer({'sdp': answer.sdp, 'type': answer.type});
+      } catch (e) {
+        debugPrint("Error handling offer: $e");
+      }
     };
 
     socketService.onAnswer = (data) async {
-      await _peerConnection!.setRemoteDescription(
-        RTCSessionDescription(data['sdp'], data['type']),
-      );
+      try {
+        if (_peerConnection == null) return;
+        await _peerConnection!.setRemoteDescription(
+          RTCSessionDescription(data['sdp'], data['type']),
+        );
+      } catch (e) {
+        debugPrint("Error handling answer: $e");
+      }
     };
 
     socketService.onIceCandidate = (data) async {
-      await _peerConnection!.addCandidate(
-        RTCIceCandidate(data['candidate'], data['sdpMid'], data['sdpMLineIndex']),
-      );
+      try {
+        if (_peerConnection == null) return;
+        await _peerConnection!.addCandidate(
+          RTCIceCandidate(data['candidate'], data['sdpMid'], data['sdpMLineIndex']),
+        );
+      } catch (e) {
+        debugPrint("Error adding ice candidate: $e");
+      }
     };
   }
 
+  Future<void> resetPeerConnection() async {
+    try {
+      await _peerConnection?.close();
+      await _peerConnection?.dispose();
+    } catch (e) {
+      debugPrint("Error disposing peer connection: $e");
+    }
+    _peerConnection = null;
+    remoteStream = null;
+
+    // Create a fresh peer connection re-using camera stream
+    await _createPeerConnectionAndTracks();
+  }
+
   Future<void> createOffer() async {
-    RTCSessionDescription offer = await _peerConnection!.createOffer();
-    await _peerConnection!.setLocalDescription(offer);
-    socketService.sendOffer({'sdp': offer.sdp, 'type': offer.type});
+    try {
+      if (_peerConnection == null) return;
+      RTCSessionDescription offer = await _peerConnection!.createOffer();
+      await _peerConnection!.setLocalDescription(offer);
+      socketService.sendOffer({'sdp': offer.sdp, 'type': offer.type});
+    } catch (e) {
+      debugPrint("Error creating offer: $e");
+    }
+  }
+
+  Future<void> switchCamera() async {
+    if (localStream != null && localStream!.getVideoTracks().isNotEmpty) {
+      final track = localStream!.getVideoTracks().first;
+      await Helper.switchCamera(track);
+    }
+  }
+
+  void setMicrophoneEnabled(bool enabled) {
+    if (localStream != null) {
+      for (var track in localStream!.getAudioTracks()) {
+        track.enabled = enabled;
+      }
+    }
+  }
+
+  void setCameraEnabled(bool enabled) {
+    if (localStream != null) {
+      for (var track in localStream!.getVideoTracks()) {
+        track.enabled = enabled;
+      }
+    }
   }
 
   void dispose() {
-    localStream?.dispose();
-    remoteStream?.dispose();
-    _peerConnection?.dispose();
+    try {
+      localStream?.getTracks().forEach((track) => track.stop());
+      localStream?.dispose();
+      remoteStream?.dispose();
+      _peerConnection?.close();
+      _peerConnection?.dispose();
+    } catch (e) {
+      debugPrint("WebRTC dispose error: $e");
+    }
+    localStream = null;
+    remoteStream = null;
+    _peerConnection = null;
   }
 }

@@ -8,9 +8,15 @@ class Post(Document):
     content: str
     media_url: Optional[str] = None
     likes: List[str] = [] # List of anonymous_usernames
-    replies_count: int = 0
-    expires_at: datetime # 24 hours from creation
+    replies_count: int = 0 # Comments count
+    reposts: List[str] = [] # Usernames who reposted
+    shares_count: int = 0
+    is_repost: bool = False
+    original_author_id: Optional[str] = None
+    original_post_id: Optional[str] = None
+    expires_at: datetime # Lifespan
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Settings:
         name = "posts"
+        indexes = ["author_id", "created_at", "original_post_id"]

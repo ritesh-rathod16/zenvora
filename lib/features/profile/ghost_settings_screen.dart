@@ -137,8 +137,7 @@ class _GhostSettingsScreenState extends State<GhostSettingsScreen> {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: const Color(0xFF6C63FF),
-            activeTrackColor: const Color(0xFF6C63FF).withOpacity(0.2),
+            activeTrackColor: const Color(0xFF6C63FF),
           ),
         ],
       ),

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:zenvora/core/theme/app_theme.dart';
 import 'package:zenvora/features/splash/splash_screen.dart';
@@ -22,36 +21,33 @@ import 'package:zenvora/features/admin/admin_chats_screen.dart';
 import 'package:zenvora/features/rooms/voice_rooms_screen.dart';
 import 'package:zenvora/services/socket_service.dart';
 import 'package:zenvora/services/voice_service.dart';
+import 'package:zenvora/core/providers/social_provider.dart';
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize Supabase
-  await Supabase.initialize(
-    url: 'https://wtqoyndapmzwgoghruab.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind0cW95bmRhcG16d2dvZ2hydWFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5NTkwOTMsImV4cCI6MjA4ODUzNTA5M30.QOV6C3XVFywoX43l3se97zrhK5owP_XgLJOhtU8AQCI',
-  );
-
-  // Request Permissions
-  await _requestPermissions();
 
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => SocketService()..initSocket()),
         ChangeNotifierProvider(create: (_) => VoiceService()),
+        ChangeNotifierProvider(create: (_) => SocialProvider()..initFollowingList()),
       ],
       child: const ZenvoraApp(),
     ),
   );
+
+  // Request permissions safely after the first frame renders
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _requestPermissions();
+  });
 }
 
-Future<void> _requestPermissions() async {
-  await [
+void _requestPermissions() {
+  [
     Permission.camera,
     Permission.microphone,
-    Permission.storage,
-  ].request();
+  ].request().ignore();
 }
 
 final _router = GoRouter(

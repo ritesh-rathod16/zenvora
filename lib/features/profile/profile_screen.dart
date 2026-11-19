@@ -6,8 +6,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/services/api_service.dart';
+import '../../widgets/safe_avatar.dart';
 import 'followers_screen.dart';
 import 'following_screen.dart';
+import 'settings_screen.dart';
+import 'screens/edit_profile_screen.dart';
 import 'widgets/premium_profile_widgets.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -21,6 +24,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   final _apiService = ApiService();
   Map<String, dynamic>? _profile;
   List<dynamic> _userPosts = [];
+  List<dynamic> _userReposts = [];
   bool _isLoading = true;
   late ScrollController _scrollController;
   late TabController _tabController;
@@ -30,7 +34,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   void initState() {
     super.initState();
     _scrollController = ScrollController()..addListener(_onScroll);
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
     _loadProfileData();
   }
 
@@ -55,10 +59,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     setState(() => _isLoading = true);
     
     try {
-      // Step 1: Fetch Profile First
       await _fetchProfile();
-      
-      // Step 2: Fetch Posts if profile succeeded
       if (_profile != null) {
         await _fetchUserPosts();
       }
@@ -72,13 +73,10 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   Future<void> _fetchProfile() async {
     try {
       final response = await _apiService.get('/users/me');
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        if (mounted) {
-          setState(() {
-            _profile = decoded;
-          });
-        }
+      if (response.statusCode == 200 && mounted) {
+        setState(() {
+          _profile = jsonDecode(response.body);
+        });
       }
     } catch (e) {
       debugPrint("Fetch Profile Error: $e");
@@ -87,25 +85,30 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
 
   Future<void> _fetchUserPosts() async {
     try {
-      final response = await _apiService.get('/posts/feed');
-      if (response.statusCode == 200) {
-        final List posts = jsonDecode(response.body);
-        final currentUsername = _profile?['anonymous_username'];
-        
-        if (mounted && currentUsername != null) {
-          setState(() {
-            _userPosts = posts.where((p) => p['author_id'] == currentUsername).toList();
-          });
-        }
+      final username = _profile?['username'] ?? _profile?['anonymous_username'];
+      if (username == null) return;
+
+      final postsRes = await _apiService.get('/posts/user/$username');
+      if (postsRes.statusCode == 200 && mounted) {
+        setState(() {
+          _userPosts = jsonDecode(postsRes.body);
+        });
+      }
+
+      final repostsRes = await _apiService.get('/posts/user/$username/reposts');
+      if (repostsRes.statusCode == 200 && mounted) {
+        setState(() {
+          _userReposts = jsonDecode(repostsRes.body);
+        });
       }
     } catch (e) {
-      debugPrint("Fetch User Posts Error: $e");
+      debugPrint("Fetch User Posts/Reposts Error: $e");
     }
   }
 
   Future<void> _uploadProfilePhoto() async {
     final picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 75);
     if (image != null) {
       try {
         final response = await _apiService.uploadFile('/users/upload-profile-photo', image.path);
@@ -120,10 +123,25 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     }
   }
 
-  Future<void> _logout() async {
-    const storage = FlutterSecureStorage();
-    await storage.deleteAll();
-    if (mounted) context.go('/login');
+  void _openEditProfile() {
+    if (_profile == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditProfileScreen(profile: _profile!),
+      ),
+    ).then((updated) {
+      if (updated == true) _loadProfileData();
+    });
+  }
+
+  void _openSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SettingsScreen(profile: _profile),
+      ),
+    ).then((_) => _loadProfileData());
   }
 
   @override
@@ -142,9 +160,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.error_outline_rounded, color: Colors.white24, size: 60),
+              const Icon(Icons.person_off_rounded, color: Colors.white24, size: 60),
               const SizedBox(height: 16),
-              const Text("Profile terminal unavailable", style: TextStyle(color: Colors.white70)),
+              const Text("Profile unavailable", style: TextStyle(color: Colors.white70)),
               TextButton(onPressed: _loadProfileData, child: const Text("RECONNECT")),
             ],
           ),
@@ -152,21 +170,47 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       );
     }
 
-    final bool isAdmin = _profile?['role'] == 'admin' || _profile?['role'] == 'super_admin';
+    final String username = _profile?['username'] ?? _profile?['anonymous_username'] ?? 'User';
+    final String? photoUrl = _profile?['profile_photo_url'] ?? _profile?['avatar_url'];
 
     return Scaffold(
       backgroundColor: const Color(0xFF0F0F1A),
       extendBodyBehindAppBar: true,
-      appBar: _buildAppBar(isAdmin),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(kToolbarHeight),
+        child: ClipRRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10 * _appBarOpacity, sigmaY: 10 * _appBarOpacity),
+            child: AppBar(
+              backgroundColor: const Color(0xFF1A1A2E).withValues(alpha: _appBarOpacity * 0.8),
+              elevation: 0,
+              title: Opacity(
+                opacity: _appBarOpacity,
+                child: Text(
+                  "@$username",
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              centerTitle: true,
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined, color: Colors.white),
+                  tooltip: "Settings",
+                  onPressed: _openSettings,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
       body: CustomScrollView(
         controller: _scrollController,
         physics: const BouncingScrollPhysics(),
         slivers: [
           const SliverToBoxAdapter(child: SizedBox(height: 120)),
-          SliverToBoxAdapter(child: _buildHeaderSection()),
-          SliverToBoxAdapter(child: _buildStatsSection()),
+          SliverToBoxAdapter(child: _buildHeaderSection(username, photoUrl)),
+          SliverToBoxAdapter(child: _buildStatsSection(username)),
           SliverToBoxAdapter(child: _buildActionSection()),
-          SliverToBoxAdapter(child: _buildHighlightsSection()),
           _buildContentTabs(),
           _buildPostsGrid(),
           const SliverToBoxAdapter(child: SizedBox(height: 80)),
@@ -175,75 +219,42 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     );
   }
 
-  PreferredSizeWidget _buildAppBar(bool isAdmin) {
-    return PreferredSize(
-      preferredSize: const Size.fromHeight(kToolbarHeight),
-      child: ClipRRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10 * _appBarOpacity, sigmaY: 10 * _appBarOpacity),
-          child: AppBar(
-            backgroundColor: const Color(0xFF1A1A2E).withOpacity(_appBarOpacity * 0.8),
-            elevation: 0,
-            title: Opacity(
-              opacity: _appBarOpacity,
-              child: Text(
-                (_profile?['anonymous_username'] ?? "GHOST").toString(),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            centerTitle: true,
-            actions: [
-              if (isAdmin)
-                IconButton(
-                  icon: const Icon(Icons.admin_panel_settings, color: Color(0xFF6C63FF)),
-                  onPressed: () => context.push('/admin'),
-                ),
-              IconButton(
-                icon: const Icon(Icons.settings_outlined, color: Colors.white),
-                onPressed: () {},
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeaderSection() {
+  Widget _buildHeaderSection(String username, String? photoUrl) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         children: [
-          PremiumAvatar(
-            imageUrl: _profile?['avatar_url']?.toString(),
-            radius: 60,
-            isOnline: true,
+          GestureDetector(
             onTap: _uploadProfilePhoto,
+            child: SafeAvatar(
+              avatarUrl: photoUrl,
+              username: username,
+              radius: 60,
+            ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           Text(
-            _profile?['real_name']?.toString() ?? _profile?['anonymous_username']?.toString() ?? "Ghost User",
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+            _profile?['display_name'] ?? username,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
           ),
           Text(
-            "@${_profile?['anonymous_username']?.toString() ?? 'unknown'}",
+            "@$username",
             style: const TextStyle(fontSize: 14, color: Color(0xFF6C63FF), fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 12),
           Text(
-            _profile?['bio']?.toString() ?? "Exploring the digital void. ✨",
+            _profile?['bio'] ?? "Exploring the digital space. ✨",
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 14, color: Colors.white70, height: 1.5),
+            style: const TextStyle(fontSize: 14, color: Colors.white70, height: 1.4),
           ),
           const SizedBox(height: 16),
           Wrap(
             spacing: 8,
-            runSpacing: 8,
             alignment: WrapAlignment.center,
             children: [
               _buildTag("${_profile?['age'] ?? '??'} yo"),
               _buildTag(_profile?['country']?.toString() ?? "Earth"),
-              _buildTag(_profile?['personality_type']?.toString() ?? "Explorer"),
+              _buildTag(_profile?['personality_type']?.toString() ?? "Creator"),
             ],
           ),
         ],
@@ -255,7 +266,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
+        color: Colors.white.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white10),
       ),
@@ -263,9 +274,9 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildStatsSection() {
+  Widget _buildStatsSection(String username) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 30),
+      padding: const EdgeInsets.symmetric(vertical: 24),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
@@ -274,20 +285,14 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             label: "Followers", 
             value: _profile?['followers_count']?.toString() ?? "0",
             onTap: () {
-              final username = _profile?['anonymous_username'];
-              if (username != null) {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => FollowersScreen(username: username.toString())));
-              }
+              Navigator.push(context, MaterialPageRoute(builder: (_) => FollowersScreen(username: username)));
             },
           ),
           PremiumStatItem(
             label: "Following", 
             value: _profile?['following_count']?.toString() ?? "0",
             onTap: () {
-              final username = _profile?['anonymous_username'];
-              if (username != null) {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => FollowingScreen(username: username.toString())));
-              }
+              Navigator.push(context, MaterialPageRoute(builder: (_) => FollowingScreen(username: username)));
             },
           ),
         ],
@@ -297,21 +302,25 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
 
   Widget _buildActionSection() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       child: Row(
         children: [
           Expanded(
             child: GlassButton(
               label: "Edit Profile",
               isPrimary: true,
-              onTap: () {},
+              onTap: _openEditProfile,
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: GlassButton(
-              label: "Logout",
-              onTap: _logout,
+              label: "Share Profile",
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Profile link copied to clipboard!")),
+                );
+              },
             ),
           ),
         ],
@@ -319,47 +328,18 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildHighlightsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 24),
-          child: Text(
-            "HIGHLIGHTS",
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white24, letterSpacing: 1.5),
-          ),
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          height: 100,
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            scrollDirection: Axis.horizontal,
-            children: const [
-              StoryCircle(title: "Moments", imageUrl: "https://picsum.photos/200/300?random=21"),
-              StoryCircle(title: "Life", imageUrl: "https://picsum.photos/200/300?random=22"),
-              StoryCircle(title: "Vibes", imageUrl: "https://picsum.photos/200/300?random=23"),
-              StoryCircle(title: "New"),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildContentTabs() {
     return SliverPersistentHeader(
       pinned: true,
       delegate: _SliverAppBarDelegate(
+        height: 48.0,
         child: Container(
           color: const Color(0xFF0F0F1A),
           child: TabBar(
             controller: _tabController,
             tabs: const [
-              Tab(icon: Icon(Icons.grid_view_rounded)),
-              Tab(icon: Icon(Icons.video_collection_rounded)),
-              Tab(icon: Icon(Icons.person_pin_outlined)),
+              Tab(icon: Icon(Icons.grid_view_rounded), text: "Posts"),
+              Tab(icon: Icon(Icons.repeat_rounded), text: "Reposts"),
             ],
             indicatorColor: const Color(0xFF6C63FF),
             indicatorSize: TabBarIndicatorSize.label,
@@ -373,15 +353,18 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   }
 
   Widget _buildPostsGrid() {
-    if (_userPosts.isEmpty) {
+    final bool isPostsTab = _tabController.index == 0;
+    final List list = isPostsTab ? _userPosts : _userReposts;
+
+    if (list.isEmpty) {
       return SliverFillRemaining(
-        child: const Center(
+        child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.camera_alt_outlined, size: 48, color: Colors.white10),
-              SizedBox(height: 16),
-              Text("No posts yet", style: TextStyle(color: Colors.white24)),
+              Icon(isPostsTab ? Icons.photo_library_outlined : Icons.repeat_rounded, size: 48, color: Colors.white10),
+              const SizedBox(height: 12),
+              Text(isPostsTab ? "No posts yet" : "No reposts yet", style: const TextStyle(color: Colors.white24)),
             ],
           ),
         ),
@@ -389,7 +372,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     }
 
     return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
+      padding: const EdgeInsets.all(2),
       sliver: SliverGrid(
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3,
@@ -398,21 +381,31 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
         ),
         delegate: SliverChildBuilderDelegate(
           (context, index) {
-            final post = _userPosts[index];
-            final mediaUrl = post['media_url']?.toString();
+            final item = list[index];
+            final mediaUrl = item['media_url']?.toString();
             return Container(
               color: const Color(0xFF1A1A2E),
               child: (mediaUrl != null && mediaUrl.isNotEmpty)
                   ? CachedNetworkImage(
                       imageUrl: mediaUrl,
                       fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(color: Colors.white.withOpacity(0.05)),
+                      placeholder: (context, url) => Container(color: Colors.white.withValues(alpha: 0.05)),
                       errorWidget: (context, url, error) => const Icon(Icons.broken_image, color: Colors.white10),
                     )
-                  : const Center(child: Icon(Icons.text_snippet, color: Colors.white10)),
+                  : Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Center(
+                        child: Text(
+                          item['content']?.toString() ?? '',
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white70, fontSize: 11),
+                        ),
+                      ),
+                    ),
             );
           },
-          childCount: _userPosts.length,
+          childCount: list.length,
         ),
       ),
     );
@@ -421,13 +414,25 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
 
 class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
   final Widget child;
-  _SliverAppBarDelegate({required this.child});
+  final double height;
+  _SliverAppBarDelegate({required this.child, this.height = 48.0});
+
   @override
-  double get minExtent => 50.0;
+  double get minExtent => height;
+
   @override
-  double get maxExtent => 50.0;
+  double get maxExtent => height;
+
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) => child;
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return SizedBox(
+      height: height,
+      child: child,
+    );
+  }
+
   @override
-  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) => false;
+  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) {
+    return oldDelegate.height != height || oldDelegate.child != child;
+  }
 }

@@ -13,7 +13,7 @@ class GhostIdentityService:
 
     @classmethod
     def get_avatar_url(cls, alias: str):
-        return f"https://api.dicebear.com/7.x/bottts/svg?seed={alias}"
+        return f"https://api.dicebear.com/7.x/bottts/png?seed={alias}"
 
     @classmethod
     async def get_or_regenerate_identity(cls, user_id: str, force: bool = False):

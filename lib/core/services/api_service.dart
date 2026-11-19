@@ -1,9 +1,8 @@
 import 'dart:convert';
 import 'dart:async';
-import 'dart:io' show Platform, SocketException;
+import 'dart:io' show SocketException;
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:flutter/foundation.dart';
 import '../constants/api_constants.dart';
 
 class ApiService {
@@ -45,6 +44,12 @@ class ApiService {
     return _handleRequest(() => http.post(url, headers: headers, body: jsonEncode(body)));
   }
 
+  Future<http.Response> put(String endpoint, Map<String, dynamic> body) async {
+    final url = Uri.parse("$baseUrl$endpoint");
+    final headers = await _getHeaders();
+    return _handleRequest(() => http.put(url, headers: headers, body: jsonEncode(body)));
+  }
+
   Future<http.Response> patch(String endpoint, Map<String, dynamic> body) async {
     final url = Uri.parse("$baseUrl$endpoint");
     final headers = await _getHeaders();
@@ -66,7 +71,7 @@ class ApiService {
     }
   }
 
-  Future<http.Response> uploadFile(String endpoint, String filePath) async {
+  Future<http.Response> uploadFile(String endpoint, String filePath, {Map<String, String>? fields}) async {
     final url = Uri.parse("$baseUrl$endpoint");
     final token = await _storage.read(key: 'token');
 
@@ -74,6 +79,10 @@ class ApiService {
     request.headers.addAll({
       if (token != null) 'Authorization': 'Bearer $token',
     });
+
+    if (fields != null) {
+      request.fields.addAll(fields);
+    }
 
     request.files.add(await http.MultipartFile.fromPath('file', filePath));
 

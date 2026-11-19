@@ -214,7 +214,7 @@ class _AdminUserCardState extends State<_AdminUserCard> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(25),
                   child: Image.network(
-                    user['avatar_url'] ?? "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${user['anonymous_username']}",
+                    user['avatar_url'] ?? "https://api.dicebear.com/7.x/bottts-neutral/png?seed=${user['anonymous_username']}",
                     fit: BoxFit.cover,
                   ),
                 ),

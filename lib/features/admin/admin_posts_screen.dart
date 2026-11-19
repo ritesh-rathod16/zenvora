@@ -69,7 +69,7 @@ class _AdminPostsScreenState extends State<AdminPostsScreen> {
                 final post = _posts[index];
                 return ListTile(
                   leading: CircleAvatar(
-                    backgroundImage: NetworkImage("https://api.dicebear.com/7.x/avataaars/svg?seed=${post['author_id']}"),
+                    backgroundImage: NetworkImage("https://api.dicebear.com/7.x/avataaars/png?seed=${post['author_id']}"),
                   ),
                   title: Text("@${post['author_id']}"),
                   subtitle: Text(post['content'], maxLines: 2, overflow: TextOverflow.ellipsis),

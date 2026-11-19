@@ -61,7 +61,7 @@ class TrendingSection extends StatelessWidget {
                         CircleAvatar(
                           radius: 12,
                           backgroundImage: NetworkImage(
-                            "https://api.dicebear.com/7.x/avataaars/svg?seed=${post.authorId}",
+                            "https://api.dicebear.com/7.x/avataaars/png?seed=${post.authorId}",
                           ),
                         ),
                         const SizedBox(width: 8),

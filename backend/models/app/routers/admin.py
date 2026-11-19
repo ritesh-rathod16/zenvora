@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, status, WebSocket, WebSocketDisconnect, Query, BackgroundTasks
 from typing import List, Dict, Any, Optional
-from ..services.matchmaking import matchmaker
 from ..services.livekit_service import livekit_service
 from ..models.user import User
 from ..models.post import Post

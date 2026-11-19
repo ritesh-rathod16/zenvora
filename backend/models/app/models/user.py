@@ -4,58 +4,83 @@ from pydantic import EmailStr, Field
 from datetime import datetime
 
 class User(Document):
-    real_name: str # Private
+    full_name: str = "Zenvora User" # Separate Display Name
+    display_name: Optional[str] = None
+    real_name: Optional[str] = None
     email: Annotated[EmailStr, Indexed(unique=True)]
-    anonymous_username: Annotated[str, Indexed(unique=True, sparse=True)] # Public anonymous ID
+    anonymous_username: str # Unique normalized handle
+    normalized_username: str = "zenvora_user" # Lowercase for case-insensitive uniqueness
     password_hash: str
-    age: int
-    country: str
+    date_of_birth: Optional[str] = None # YYYY-MM-DD
+    age: Optional[int] = None
+    gender: Optional[str] = "prefer_not_to_say"
+    country: Optional[str] = "Global"
+    city: Optional[str] = None
     interests: List[str] = []
     bio: Optional[str] = ""
-    
+    website: Optional[str] = None
+
     avatar_url: Optional[str] = None
-    profile_photo_url: Optional[str] = None 
-    
-    # Feature 4: Star System
-    weekly_star_count: int = 0
-    weekly_star_reset: datetime = Field(default_factory=datetime.utcnow)
-    
-    # Emotional & Ghost Identity System
-    current_mood: str = "neutral" # lonely, anxious, chaotic, sleepy, etc.
-    social_battery: int = 100
-    voice_aura: str = "Cyber Purple" # Cyber Purple, Ghost Blue, Dreamcore, etc.
-    ghost_mode: bool = False
-    invisible_listening: bool = False
-    alias_rotation_enabled: bool = True
-    last_alias_rotation: datetime = Field(default_factory=datetime.utcnow)
-    
-    gender: Optional[str] = "unknown"
-    interested_in: Optional[str] = "everyone" # male, female, everyone
-    age_min: int = 18
-    age_max: int = 35
-    
+    profile_photo_url: Optional[str] = None
+    public_encryption_key: Optional[str] = None
+
+    # Privacy & Visibility Settings
+    is_private: bool = False
+    visibility_settings: dict = Field(default_factory=lambda: {
+        "show_age": True,
+        "show_country": True,
+        "show_interests": True
+    })
+
+    notifications_enabled: dict = Field(default_factory=lambda: {
+        "likes": True,
+        "comments": True,
+        "follows": True,
+        "messages": True,
+        "stories": True
+    })
+    blocked_users: List[str] = []
+    muted_users: List[str] = []
+    close_friends: List[str] = []
+    hide_story_from: List[str] = []
+    saved_reels: List[str] = []
+    saved_posts: List[str] = []
+    chat_settings: dict = Field(default_factory=lambda: {
+        "auto_delete_mode": "off",
+        "theme": "default"
+    })
+    story_settings: dict = Field(default_factory=lambda: {
+        "allow_story_likes": True,
+        "allow_story_replies": True,
+        "save_to_archive": True
+    })
+    language: Optional[str] = "English"
+    theme_preference: str = "dark"
+    current_mood: Optional[str] = "neutral"
+    voice_aura: Optional[str] = "Default"
+    social_battery: Optional[int] = 100
+    personality_type: Optional[str] = "The Adventurer"
+
+    # Social Counts
+    followers_count: int = 0
+    following_count: int = 0
+    posts_count: int = 0
+
     trust_score: int = 100
     activity_score: int = 0
     is_active: bool = False
     is_admin: bool = False
-    role: str = "user" # user, moderator, admin, super_admin
+    role: str = "user"
     is_banned: bool = False
     shadow_banned: bool = False
-    ban_reason: Optional[str] = None
-    
-    # Social Features (Counts only, arrays moved to separate collections)
-    followers_count: int = 0
-    following_count: int = 0
-    posts_count: int = 0
-    
-    verification_token: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_active: datetime = Field(default_factory=datetime.utcnow)
 
-    # Personality & Matching
-    personality_type: Optional[str] = "The Adventurer"
-    interest_cluster: Optional[str] = None
-    compatibility_vector: List[float] = []
-
     class Settings:
         name = "users"
+        indexes = [
+            [("normalized_username", 1)],
+            "anonymous_username",
+            "country",
+            "interests"
+        ]

@@ -50,7 +50,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
                 return ListTile(
                   leading: CircleAvatar(
-                    backgroundImage: NetworkImage("https://api.dicebear.com/7.x/avataaars/svg?seed=$otherUser"),
+                    backgroundImage: NetworkImage("https://api.dicebear.com/7.x/avataaars/png?seed=$otherUser"),
                   ),
                   title: Text(
                     "@$otherUser",

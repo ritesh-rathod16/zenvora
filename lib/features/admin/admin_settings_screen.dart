@@ -110,7 +110,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: isWarning ? Colors.redAccent : Colors.white)),
         subtitle: Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 12)),
         value: _settings[key] ?? false,
-        activeColor: const Color(0xFF6C63FF),
+        activeTrackColor: const Color(0xFF6C63FF),
         onChanged: (v) => _updateSetting(key, v),
       ),
     );

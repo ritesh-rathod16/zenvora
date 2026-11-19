@@ -22,6 +22,6 @@ class IdentityGenerator {
   }
 
   static String getAvatar(String name) {
-    return "https://api.dicebear.com/7.x/bottts-neutral/svg?seed=$name&backgroundColor=0f0f1a";
+    return "https://api.dicebear.com/7.x/bottts-neutral/png?seed=$name&backgroundColor=0f0f1a";
   }
 }

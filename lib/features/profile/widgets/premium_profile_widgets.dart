@@ -5,6 +5,7 @@ import 'package:shimmer/shimmer.dart';
 
 class PremiumAvatar extends StatelessWidget {
   final String? imageUrl;
+  final String username;
   final double radius;
   final bool isOnline;
   final bool isSpeaking;
@@ -13,18 +14,23 @@ class PremiumAvatar extends StatelessWidget {
   const PremiumAvatar({
     super.key,
     this.imageUrl,
+    this.username = "User",
     this.radius = 50,
     this.isOnline = false,
     this.isSpeaking = false,
     this.onTap,
   });
 
-  String get _safeImageUrl => (imageUrl == null || imageUrl!.isEmpty) 
-      ? "https://api.dicebear.com/7.x/avataaars/png?seed=ghost" 
-      : imageUrl!;
+  bool get _hasValidImage =>
+      imageUrl != null &&
+      imageUrl!.trim().isNotEmpty &&
+      !imageUrl!.contains('dicebear.com');
 
   @override
   Widget build(BuildContext context) {
+    final cleanName = username.trim().replaceAll('@', '');
+    final initial = cleanName.isNotEmpty ? cleanName[0].toUpperCase() : 'U';
+
     return GestureDetector(
       onTap: onTap,
       child: Stack(
@@ -57,21 +63,20 @@ class PremiumAvatar extends StatelessWidget {
               radius: radius,
               backgroundColor: const Color(0xFF1A1A2E),
               child: ClipOval(
-                child: CachedNetworkImage(
-                  imageUrl: _safeImageUrl,
-                  fit: BoxFit.cover,
-                  width: radius * 2,
-                  height: radius * 2,
-                  placeholder: (context, url) => Shimmer.fromColors(
-                    baseColor: Colors.white10,
-                    highlightColor: Colors.white24,
-                    child: Container(color: Colors.white),
-                  ),
-                  errorWidget: (context, url, error) => CachedNetworkImage(
-                    imageUrl: "https://api.dicebear.com/7.x/avataaars/png?seed=error",
-                    fit: BoxFit.cover,
-                  ),
-                ),
+                child: _hasValidImage
+                    ? CachedNetworkImage(
+                        imageUrl: imageUrl!,
+                        fit: BoxFit.cover,
+                        width: radius * 2,
+                        height: radius * 2,
+                        placeholder: (context, url) => Shimmer.fromColors(
+                          baseColor: Colors.white10,
+                          highlightColor: Colors.white24,
+                          child: Container(color: Colors.white),
+                        ),
+                        errorWidget: (context, url, error) => _buildInitials(initial),
+                      )
+                    : _buildInitials(initial),
               ),
             ),
           ),
@@ -96,6 +101,30 @@ class PremiumAvatar extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildInitials(String initial) {
+    return Container(
+      width: radius * 2,
+      height: radius * 2,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        initial,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: radius * 0.7,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }

@@ -19,7 +19,6 @@ class AppTheme {
         primary: primaryColor,
         secondary: secondaryColor,
         surface: surfaceColor,
-        background: backgroundColor,
         error: errorColor,
       ),
       textTheme: GoogleFonts.poppinsTextTheme(const TextTheme(

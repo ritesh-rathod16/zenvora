@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../posts/feed_screen.dart';
 import '../discover/discovery_screen.dart';
 import '../search/search_people_screen.dart';
+import '../reels/reels_feed_screen.dart';
 import '../profile/profile_screen.dart';
 import '../chat/chat_inbox_screen.dart';
 import '../notifications/notifications_screen.dart';
@@ -20,8 +21,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
-  bool? _isAdmin;
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _isAdmin = false;
+  bool _isLoadingRole = true;
 
   @override
   void initState() {
@@ -39,64 +40,76 @@ class _HomeScreenState extends State<HomeScreen> {
         if (mounted) {
           setState(() {
             _isAdmin = (role == 'admin' || role == 'super_admin' || user['is_admin'] == true);
+            _isLoadingRole = false;
           });
         }
       } else {
-        if (mounted) setState(() => _isAdmin = false);
+        if (mounted) setState(() => _isLoadingRole = false);
       }
     } catch (e) {
       debugPrint("Check Role Error: $e");
-      if (mounted) setState(() => _isAdmin = false);
+      if (mounted) setState(() => _isLoadingRole = false);
     }
   }
 
   final List<Widget> _pages = [
-    const FeedScreen(),
-    const DiscoveryScreen(),
-    const SearchPeopleScreen(),
-    const NotificationsScreen(),
-    const ProfileScreen(),
+    const FeedScreen(),           // 0: Home (Feed + Stories)
+    const DiscoveryScreen(),      // 1: Discover (Tinder-style Discover People)
+    const SearchPeopleScreen(),   // 2: Search (Search Bar + Instagram Explore Grid)
+    const ReelsFeedScreen(),      // 3: Reels (Instagram-style Reels)
+    const NotificationsScreen(),  // 4: Activity (Likes, Follow Requests, Notifications)
+    const ProfileScreen(),        // 5: Profile (User Profile & Stats)
   ];
 
   @override
   Widget build(BuildContext context) {
-    if (_isAdmin == null) {
+    if (_isLoadingRole) {
       return const Scaffold(
         backgroundColor: Color(0xFF0F0F1A),
         body: Center(child: CircularProgressIndicator(color: Color(0xFF6C63FF))),
       );
     }
 
-    if (_isAdmin!) {
-      return const AdminMainScreen();
-    }
-
     return Scaffold(
-      key: _scaffoldKey,
       backgroundColor: const Color(0xFF0F0F1A),
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.menu_rounded, color: Colors.white),
-          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-        ),
-        title: const Text("ZENVORA", style: TextStyle(letterSpacing: 2, fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.videocam_outlined, color: Color(0xFF6C63FF)),
-            onPressed: () => context.push('/matchmaking'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.message_outlined, color: Colors.white),
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatInboxScreen()));
-            },
-          ),
-          const SizedBox(width: 8),
-        ],
-        backgroundColor: const Color(0xFF1A1A2E),
-        elevation: 0,
-      ),
-      drawer: _buildUserDrawer(context),
+      // ZENVORA Header appears ONLY on Home page (_selectedIndex == 0)
+      appBar: _selectedIndex == 0
+          ? AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.mic_rounded, color: Color(0xFF6C63FF)),
+                tooltip: "Voice Rooms",
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const VoiceRoomsScreen()));
+                },
+              ),
+              title: const Text("ZENVORA", style: TextStyle(letterSpacing: 2, fontWeight: FontWeight.bold, fontSize: 18)),
+              actions: [
+                if (_isAdmin)
+                  IconButton(
+                    icon: const Icon(Icons.admin_panel_settings_rounded, color: Colors.amberAccent),
+                    tooltip: "Admin Console",
+                    onPressed: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminMainScreen()));
+                    },
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.videocam_rounded, color: Color(0xFF00F0FF)),
+                  tooltip: "Omegle Video Chat",
+                  onPressed: () => context.push('/matchmaking'),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.send_rounded, color: Colors.white),
+                  tooltip: "Direct Messages",
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatInboxScreen()));
+                  },
+                ),
+                const SizedBox(width: 8),
+              ],
+              backgroundColor: const Color(0xFF1A1A2E),
+              elevation: 0,
+            )
+          : null,
       body: IndexedStack(index: _selectedIndex, children: _pages),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
@@ -109,56 +122,11 @@ class _HomeScreenState extends State<HomeScreen> {
         showUnselectedLabels: false,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: "Home"),
-          BottomNavigationBarItem(icon: Icon(Icons.explore_outlined), label: "Discover"),
+          BottomNavigationBarItem(icon: Icon(Icons.explore_rounded), label: "Discover"),
           BottomNavigationBarItem(icon: Icon(Icons.search_rounded), label: "Search"),
+          BottomNavigationBarItem(icon: Icon(Icons.video_collection_rounded), activeIcon: Icon(Icons.video_collection), label: "Reels"),
           BottomNavigationBarItem(icon: Icon(Icons.favorite_outline), activeIcon: Icon(Icons.favorite), label: "Activity"),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: "Profile"),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUserDrawer(BuildContext context) {
-    return Drawer(
-      backgroundColor: const Color(0xFF0F0F1A),
-      child: Column(
-        children: [
-          const DrawerHeader(
-            decoration: BoxDecoration(color: Color(0xFF6C63FF)),
-            child: Center(
-              child: Text("ZENVORA", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2)),
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.mic_rounded, color: Colors.white70),
-            title: const Text("Voice Rooms", style: TextStyle(color: Colors.white)),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const VoiceRoomsScreen()));
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.block_rounded, color: Colors.white70),
-            title: const Text("Blocked Users", style: TextStyle(color: Colors.white)),
-            onTap: () {},
-          ),
-          ListTile(
-            leading: const Icon(Icons.settings_outlined, color: Colors.white70),
-            title: const Text("Settings", style: TextStyle(color: Colors.white)),
-            onTap: () {},
-          ),
-          const Spacer(),
-          ListTile(
-            leading: const Icon(Icons.logout_rounded, color: Colors.redAccent),
-            title: const Text("Logout", style: TextStyle(color: Colors.redAccent)),
-            onTap: () async {
-              const storage = FlutterSecureStorage();
-              await storage.deleteAll();
-              if (!mounted) return;
-              context.go('/login');
-            },
-          ),
-          const SizedBox(height: 20),
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: "Profile"),
         ],
       ),
     );

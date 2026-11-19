@@ -1,93 +1,458 @@
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Body
 from ..models.story import Story
 from ..models.user import User
-from ..core.security import get_current_user
-from typing import List
-from datetime import datetime, timedelta
+from ..models.chat import Chat, Message
+from ..models.notification import Notification
+from ..models.social import Follow
+from ..core.security import get_current_user, get_optional_current_user
+from typing import List, Optional, Dict, Any
+from datetime import datetime, timedelta, timezone
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 import io
 from PIL import Image
 from bson import ObjectId
 import logging
+from pydantic import BaseModel, Field
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+class StoryReactionRequest(BaseModel):
+    emoji: str = Field(..., min_length=1, max_length=10)
+
+class StoryReplyRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=1000)
+
+class PollVoteRequest(BaseModel):
+    option_index: int
+
+class StorySettingsUpdateRequest(BaseModel):
+    allow_story_replies: Optional[str] = None # everyone, following, nobody
+    allow_story_reactions: Optional[bool] = None
+    allow_story_likes: Optional[bool] = None
+    allow_story_sharing: Optional[bool] = None
+    allow_story_mentions: Optional[str] = None # everyone, following, nobody
+    save_to_archive: Optional[bool] = None
+    save_original: Optional[bool] = None
+
+class StoryShareRequest(BaseModel):
+    recipients: List[str] = Field(..., min_items=1)
+
+def format_time_ago(dt: datetime) -> str:
+    now = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    diff = max(0, int((now - dt).total_seconds()))
+    if diff < 60:
+        return "Just now"
+    mins = diff // 60
+    if mins < 60:
+        return f"{mins}m ago"
+    hours = mins // 60
+    if hours < 24:
+        return f"{hours}h ago"
+    days = hours // 24
+    return f"{days}d ago"
+
+async def _enrich_story(story: Story, current_username: Optional[str] = None) -> Dict[str, Any]:
+    author = await User.find_one({"anonymous_username": story.author_id})
+    author_photo = None
+    if author:
+        author_photo = author.profile_photo_url or author.avatar_url
+        if author_photo and "dicebear.com" in author_photo:
+            author_photo = None
+
+    is_liked = current_username in story.likes if current_username else False
+
+    data = story.dict()
+    data["id"] = str(story.id)
+    data["_id"] = str(story.id)
+    data["author_photo"] = author_photo
+    data["likes_count"] = len(story.likes)
+    data["views_count"] = len(story.views)
+    data["is_liked"] = is_liked
+    data["created_at"] = story.created_at.isoformat()
+    data["expires_at"] = story.expires_at.isoformat()
+    data["time_ago"] = format_time_ago(story.created_at)
+    data["is_close_friends_only"] = story.is_close_friends_only
+    return data
+
+@router.get("/settings")
+async def get_story_settings(current_user: User = Depends(get_current_user)):
+    return {
+        "story_settings": current_user.story_settings,
+        "close_friends": current_user.close_friends,
+        "hide_story_from": current_user.hide_story_from
+    }
+
+@router.put("/settings")
+async def update_story_settings(body: StorySettingsUpdateRequest, current_user: User = Depends(get_current_user)):
+    settings = current_user.story_settings or {}
+    if body.allow_story_replies is not None:
+        settings["allow_story_replies"] = body.allow_story_replies
+    if body.allow_story_reactions is not None:
+        settings["allow_story_reactions"] = body.allow_story_reactions
+    if body.allow_story_likes is not None:
+        settings["allow_story_likes"] = body.allow_story_likes
+    if body.allow_story_sharing is not None:
+        settings["allow_story_sharing"] = body.allow_story_sharing
+    if body.allow_story_mentions is not None:
+        settings["allow_story_mentions"] = body.allow_story_mentions
+    if body.save_to_archive is not None:
+        settings["save_to_archive"] = body.save_to_archive
+    if body.save_original is not None:
+        settings["save_original"] = body.save_original
+
+    current_user.story_settings = settings
+    await current_user.save()
+    return {"message": "Story settings updated", "story_settings": current_user.story_settings}
+
+@router.get("/close-friends")
+async def get_close_friends(current_user: User = Depends(get_current_user)):
+    users = await User.find({"anonymous_username": {"$in": current_user.close_friends}}).to_list()
+    return [{
+        "username": u.anonymous_username,
+        "display_name": u.display_name or u.anonymous_username,
+        "profile_photo_url": u.profile_photo_url or u.avatar_url
+    } for u in users]
+
+@router.post("/close-friends/{username}")
+async def add_close_friend(username: str, current_user: User = Depends(get_current_user)):
+    if username == current_user.anonymous_username:
+        raise HTTPException(status_code=400, detail="Cannot add yourself to close friends")
+    if username not in current_user.close_friends:
+        current_user.close_friends.append(username)
+        await current_user.save()
+    return {"message": f"Added @{username} to Close Friends"}
+
+@router.post("/{story_id}/poll-vote")
+async def vote_on_story_poll(story_id: str, body: PollVoteRequest, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story or not story.poll:
+        raise HTTPException(status_code=404, detail="Poll not found on this story")
+
+    uname = current_user.anonymous_username
+    poll = story.poll
+    votes = poll.get("votes", {})
+    votes[uname] = body.option_index
+    poll["votes"] = votes
+    story.poll = poll
+    await story.save()
+    return {"success": True, "poll": story.poll}
+
+@router.get("/hide-from")
+async def get_hide_story_users(current_user: User = Depends(get_current_user)):
+    users = await User.find({"anonymous_username": {"$in": current_user.hide_story_from}}).to_list()
+    return [{
+        "username": u.anonymous_username,
+        "display_name": u.display_name or u.anonymous_username,
+        "profile_photo_url": u.profile_photo_url or u.avatar_url
+    } for u in users]
+
+@router.post("/hide-from/{username}")
+async def hide_story_from_user(username: str, current_user: User = Depends(get_current_user)):
+    if username == current_user.anonymous_username:
+        raise HTTPException(status_code=400, detail="Cannot hide stories from yourself")
+    if username not in current_user.hide_story_from:
+        current_user.hide_story_from.append(username)
+        await current_user.save()
+    return {"message": f"Hiding stories from @{username}"}
+
+@router.delete("/hide-from/{username}")
+async def unhide_story_from_user(username: str, current_user: User = Depends(get_current_user)):
+    if username in current_user.hide_story_from:
+        current_user.hide_story_from.remove(username)
+        await current_user.save()
+    return {"message": f"Unhid stories from @{username}"}
+
+@router.post("/create")
 @router.post("/upload")
-async def create_story(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
+async def create_story(
+    file: UploadFile = File(...),
+    is_close_friends_only: bool = Form(False),
+    caption: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user)
+):
     """Uploads a story image to GridFS and creates a record."""
-    logger.info(f"Received story upload request from {current_user.anonymous_username}. Content type: {file.content_type}")
-    
-    # Be more lenient with content type checks
     if not file.content_type or not (file.content_type.startswith("image/") or file.content_type == "application/octet-stream"):
-        logger.error(f"Invalid content type: {file.content_type}")
         raise HTTPException(status_code=400, detail=f"Invalid image format: {file.content_type}")
-    
+
     try:
         content = await file.read()
-        
-        # Process image
-        img = Image.open(io.BytesIO(content))
-        img = img.convert("RGB")
-        # Stories are usually vertical
+        img = Image.open(io.BytesIO(content)).convert("RGB")
         img.thumbnail((1080, 1920))
-        
+
         output = io.BytesIO()
         img.save(output, format="JPEG", quality=80)
-        processed_content = output.getvalue()
+        processed = output.getvalue()
 
         from ..core.database import db
-        if db is None:
-            logger.error("Database connection not initialized")
-            raise HTTPException(status_code=500, detail="Database connection not initialized")
-            
         bucket = AsyncIOMotorGridFSBucket(db)
-        
+        now = datetime.utcnow()
+
         file_id = await bucket.upload_from_stream(
-            f"story_{current_user.id}_{datetime.utcnow().timestamp()}.jpg",
-            processed_content,
+            f"story_{current_user.id}_{now.timestamp()}.jpg",
+            processed,
             metadata={"contentType": "image/jpeg", "userId": str(current_user.id)}
         )
-        
+
         media_url = f"/media/stories/{file_id}"
-        
+
         new_story = Story(
             author_id=current_user.anonymous_username,
             media_url=media_url,
-            expires_at=datetime.utcnow() + timedelta(hours=24)
+            caption=caption,
+            is_close_friends_only=is_close_friends_only,
+            expires_at=now + timedelta(hours=24)
         )
         await new_story.insert()
-        logger.info(f"Story created successfully: {media_url}")
-        return new_story
+        return await _enrich_story(new_story, current_user.anonymous_username)
     except Exception as e:
-        logger.error(f"Story upload error: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Failed to process image: {str(e)}")
+        logger.error(f"Story upload error: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to process story: {e}")
 
-@router.get("/feed", response_model=List[Story])
-async def get_stories_feed(current_user: User = Depends(get_current_user)):
-    """Fetch all active stories from users (excluding expired ones)."""
+@router.get("/feed")
+async def get_stories_feed(current_user: Optional[User] = Depends(get_optional_current_user)):
+    """Fetch all active stories respecting privacy settings, blocks, and close friends lists."""
     now = datetime.utcnow()
-    stories = await Story.find({"expires_at": {"$gt": now}}).sort(-Story.created_at).to_list()
-    return stories
+    all_stories = await Story.find({"$or": [{"expires_at": {"$gt": now}}, {"expires_at": None}]}).sort(-Story.created_at).to_list()
 
-@router.delete("/{story_id}")
-async def delete_story(story_id: str, current_user: User = Depends(get_current_user)):
+    viewer_name = current_user.anonymous_username if current_user else None
+    filtered_stories = []
+
+    for story in all_stories:
+        author = await User.find_one({"anonymous_username": story.author_id})
+        if not author:
+            continue
+
+        if viewer_name:
+            # Check blocks
+            if viewer_name in author.blocked_users or author.anonymous_username in current_user.blocked_users:
+                continue
+
+            # Check hide_story_from
+            if viewer_name in author.hide_story_from:
+                continue
+
+            # Check Close Friends privacy
+            if story.is_close_friends_only and viewer_name != author.anonymous_username:
+                if viewer_name not in author.close_friends:
+                    continue
+
+        filtered_stories.append(await _enrich_story(story, viewer_name))
+
+    return filtered_stories
+
+@router.post("/{story_id}/view")
+async def view_story(story_id: str, current_user: User = Depends(get_current_user)):
     story = await Story.get(story_id)
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
-    if story.author_id != current_user.anonymous_username:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    
-    from ..core.database import db
-    bucket = AsyncIOMotorGridFSBucket(db)
-    try:
-        file_id = story.media_url.split("/")[-1]
-        await bucket.delete(ObjectId(file_id))
-    except:
-        pass
 
-    await story.delete()
-    return {"message": "Story deleted"}
+    uname = current_user.anonymous_username
+    already_viewed = any(v.get("username") == uname for v in story.views)
+    if not already_viewed:
+        story.views.append({
+            "user_id": str(current_user.id),
+            "username": uname,
+            "full_name": current_user.full_name,
+            "avatar_url": current_user.profile_photo_url or current_user.avatar_url,
+            "viewed_at": datetime.now(timezone.utc).isoformat()
+        })
+        await story.save()
+
+    return {"success": True, "views_count": len(story.views)}
+
+@router.get("/archive")
+async def get_story_archive(current_user: User = Depends(get_current_user)):
+    uname = current_user.anonymous_username
+    stories = await Story.find({"author_id": uname, "save_to_archive": True}).sort(-Story.created_at).to_list()
+    return [await _enrich_story(s, uname) for s in stories]
+
+@router.get("/{story_id}/viewers")
+async def get_story_viewers(story_id: str, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    if story.author_id != current_user.anonymous_username:
+        raise HTTPException(status_code=403, detail="Only story owner can access full viewer list")
+
+    return {
+        "views_count": len(story.views),
+        "viewers": story.views
+    }
+
+@router.post("/{story_id}/like")
+async def like_story(story_id: str, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    author = await User.find_one({"anonymous_username": story.author_id})
+    if author and author.story_settings.get("allow_story_likes") is False:
+        raise HTTPException(status_code=403, detail="Story owner has disabled story likes")
+
+    uname = current_user.anonymous_username
+    liked = False
+    if uname in story.likes:
+        story.likes.remove(uname)
+        liked = False
+    else:
+        story.likes.append(uname)
+        liked = True
+
+        if story.author_id != uname:
+            notif = Notification(
+                user_id=story.author_id,
+                type="story_like",
+                actor_ids=[uname],
+                message=f"@{uname} liked your story",
+                metadata={"story_id": story_id}
+            )
+            await notif.insert()
+
+    await story.save()
+    return {"liked": liked, "likes_count": len(story.likes)}
+
+@router.post("/{story_id}/react")
+async def react_to_story(story_id: str, body: StoryReactionRequest, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    author = await User.find_one({"anonymous_username": story.author_id})
+    if author and author.story_settings.get("allow_story_reactions") is False:
+        raise HTTPException(status_code=403, detail="Story owner has disabled story reactions")
+
+    sender = current_user.anonymous_username
+    recipient = story.author_id
+
+    # Record reaction on story
+    story.reactions.append({
+        "username": sender,
+        "emoji": body.emoji,
+        "created_at": datetime.utcnow().isoformat()
+    })
+    await story.save()
+
+    # Deliver to owner's DM
+    if sender != recipient:
+        chat = await Chat.find_one({"participants": {"$all": [sender, recipient], "$size": 2}})
+        if not chat:
+            chat = Chat(participants=[sender, recipient], last_message=f"Reacted {body.emoji} to your story")
+            await chat.insert()
+
+        msg = Message(
+            chat_id=str(chat.id),
+            sender_id=sender,
+            content=f"Reacted {body.emoji} to your story",
+            message_type="story_reaction",
+            attachment_url=story.media_url
+        )
+        await msg.insert()
+
+        chat.last_message = f"Reacted {body.emoji} to your story"
+        chat.updated_at = datetime.utcnow()
+        await chat.save()
+
+        notif = Notification(
+            user_id=recipient,
+            type="story_reaction",
+            actor_ids=[sender],
+            message=f"@{sender} reacted {body.emoji} to your story",
+            metadata={"story_id": story_id, "chat_id": str(chat.id)}
+        )
+        await notif.insert()
+
+    return {"success": True, "message": "Reaction sent to story owner"}
+
+@router.post("/{story_id}/reply")
+async def reply_to_story(story_id: str, body: StoryReplyRequest, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    author = await User.find_one({"anonymous_username": story.author_id})
+    if author:
+        allow_replies = author.story_settings.get("allow_story_replies", "everyone")
+        if allow_replies == "nobody":
+            raise HTTPException(status_code=403, detail="Story owner has disabled story replies")
+        elif allow_replies == "following":
+            is_follower = await Follow.find_one({"follower_id": current_user.anonymous_username, "following_id": author.anonymous_username})
+            if not is_follower and current_user.anonymous_username != author.anonymous_username:
+                raise HTTPException(status_code=403, detail="Only people followed by the author can reply")
+
+    sender = current_user.anonymous_username
+    recipient = story.author_id
+
+    if sender != recipient:
+        chat = await Chat.find_one({"participants": {"$all": [sender, recipient], "$size": 2}})
+        if not chat:
+            chat = Chat(participants=[sender, recipient], last_message=body.text)
+            await chat.insert()
+
+        msg = Message(
+            chat_id=str(chat.id),
+            sender_id=sender,
+            content=f"Replied to story: {body.text}",
+            message_type="story_reply",
+            attachment_url=story.media_url
+        )
+        await msg.insert()
+
+        chat.last_message = f"Replied to story: {body.text[:40]}"
+        chat.updated_at = datetime.utcnow()
+        await chat.save()
+
+        notif = Notification(
+            user_id=recipient,
+            type="story_reply",
+            actor_ids=[sender],
+            message=f"@{sender} replied to your story: {body.text[:50]}",
+            metadata={"story_id": story_id, "chat_id": str(chat.id)}
+        )
+        await notif.insert()
+
+    return {"success": True, "message": "Reply delivered to story owner's DM"}
+
+@router.post("/{story_id}/share")
+async def share_story(story_id: str, body: StoryShareRequest, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    author = await User.find_one({"anonymous_username": story.author_id})
+    if author and author.story_settings.get("allow_story_sharing") is False:
+        raise HTTPException(status_code=403, detail="Story owner has disabled story sharing")
+
+    sender = current_user.anonymous_username
+    sent_count = 0
+
+    for recipient in body.recipients:
+        if recipient == sender:
+            continue
+
+        chat = await Chat.find_one({"participants": {"$all": [sender, recipient], "$size": 2}})
+        if not chat:
+            chat = Chat(participants=[sender, recipient], last_message=f"Shared story by @{story.author_id}")
+            await chat.insert()
+
+        msg = Message(
+            chat_id=str(chat.id),
+            sender_id=sender,
+            content=f"Shared a story by @{story.author_id}",
+            message_type="story_reply",
+            attachment_url=story.media_url
+        )
+        await msg.insert()
+
+        chat.last_message = f"Shared story by @{story.author_id}"
+        chat.updated_at = datetime.utcnow()
+        await chat.save()
+        sent_count += 1
+
+    return {"success": True, "sent_to": sent_count}
 
 @router.post("/{story_id}/view")
 async def view_story(story_id: str, current_user: User = Depends(get_current_user)):
@@ -96,3 +461,47 @@ async def view_story(story_id: str, current_user: User = Depends(get_current_use
         story.views.append(current_user.anonymous_username)
         await story.save()
     return {"message": "Viewed"}
+
+@router.get("/{story_id}/viewers")
+async def get_story_viewers(story_id: str, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    if story.author_id != current_user.anonymous_username and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Only story owner can view viewers list")
+
+    viewers = []
+    for uname in story.views:
+        u = await User.find_one({"anonymous_username": uname})
+        photo = None
+        if u:
+            photo = u.profile_photo_url or u.avatar_url
+            if photo and "dicebear.com" in photo:
+                photo = None
+        viewers.append({
+            "username": uname,
+            "display_name": u.display_name if u else uname,
+            "profile_photo_url": photo,
+            "has_liked": uname in story.likes
+        })
+    return viewers
+
+@router.delete("/{story_id}")
+async def delete_story(story_id: str, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    if story.author_id != current_user.anonymous_username and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    from ..core.database import db
+    bucket = AsyncIOMotorGridFSBucket(db)
+    try:
+        file_id = story.media_url.split("/")[-1]
+        await bucket.delete(ObjectId(file_id))
+    except Exception:
+        pass
+
+    await story.delete()
+    return {"message": "Story deleted"}

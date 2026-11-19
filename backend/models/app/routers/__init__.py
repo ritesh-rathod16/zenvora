@@ -14,4 +14,12 @@ from .stories import router as stories
 from .calls import router as calls
 from .ghost import router as ghost
 from .swipe import router as swipe
+from .reels import router as reels
+from .communities import router as communities
+from .ai import router as ai
+from .creator import router as creator
+from .livestream import router as livestream
+from .monetization import router as monetization
+from .connect import router as connect
+from .notifications import router as notifications
 from .websockets import websocket_endpoint

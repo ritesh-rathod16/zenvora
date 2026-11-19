@@ -90,7 +90,7 @@ class _AdminBroadcastScreenState extends State<AdminBroadcastScreen> {
               title: const Text("Email Broadcast", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
               subtitle: const Text("Send this message to all verified user emails.", style: TextStyle(fontSize: 11, color: Colors.white38)),
               value: _sendEmail,
-              activeColor: const Color(0xFF6C63FF),
+              activeTrackColor: const Color(0xFF6C63FF),
               onChanged: (v) => setState(() => _sendEmail = v),
             ),
           ),

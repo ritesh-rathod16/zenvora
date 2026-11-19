@@ -331,7 +331,7 @@ class _RoomCard extends StatelessWidget {
               child: CircleAvatar(
                 radius: 8,
                 backgroundColor: Colors.white12,
-                backgroundImage: NetworkImage("https://api.dicebear.com/7.x/bottts-neutral/svg?seed=$index${room['_id']}"),
+                backgroundImage: NetworkImage("https://api.dicebear.com/7.x/bottts-neutral/png?seed=$index${room['_id']}"),
               ),
             ),
           );

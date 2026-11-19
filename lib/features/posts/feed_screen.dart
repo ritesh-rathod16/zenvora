@@ -28,7 +28,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _fetchFeed() async {
     try {
       final response = await _apiService.get('/posts/feed');
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && mounted) {
         final List<dynamic> data = jsonDecode(response.body);
         final List<PostModel> fetchedPosts = data.map((json) => PostModel.fromJson(json)).toList();
         
@@ -37,9 +37,11 @@ class _FeedScreenState extends State<FeedScreen> {
           _trendingPosts = fetchedPosts.where((p) => p.isTrending).toList();
           _isLoading = false;
         });
+      } else {
+        if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -54,59 +56,66 @@ class _FeedScreenState extends State<FeedScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         child: const Icon(Icons.add_comment_rounded, color: Colors.white),
       ),
-      body: _isLoading 
-          ? const _FeedSkeleton()
-          : RefreshIndicator(
-              onRefresh: _fetchFeed,
-              color: const Color(0xFF6C63FF),
-              backgroundColor: const Color(0xFF1A1A2E),
-              child: CustomScrollView(
-                slivers: [
-                  // App Bar / Stories
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.only(top: 12.0),
-                      child: StorySection(),
-                    ),
-                  ),
-
-                  // Trending Section
-                  SliverToBoxAdapter(
-                    child: TrendingSection(trendingPosts: _trendingPosts),
-                  ),
-
-                  // Main Feed Header
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-                      child: Text(
-                        "DISCOVER THOUGHTS",
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          letterSpacing: 1.5,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white.withOpacity(0.3),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Feed Posts
-                  SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        return _AnimatedPostCard(
-                          post: _posts[index],
-                          index: index,
-                        );
-                      },
-                      childCount: _posts.length,
-                    ),
-                  ),
-                  
-                  const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
-                ],
+      body: RefreshIndicator(
+        onRefresh: _fetchFeed,
+        color: const Color(0xFF6C63FF),
+        backgroundColor: const Color(0xFF1A1A2E),
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+          slivers: [
+            // App Bar / Stories (Always loads independently and immediately)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.only(top: 12.0),
+                child: StorySection(),
               ),
             ),
+
+            if (_isLoading)
+              const SliverFillRemaining(
+                child: Center(
+                  child: CircularProgressIndicator(color: Color(0xFF6C63FF)),
+                ),
+              )
+            else ...[
+              // Trending Section
+              SliverToBoxAdapter(
+                child: TrendingSection(trendingPosts: _trendingPosts),
+              ),
+
+              // Main Feed Header
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+                  child: Text(
+                    "DISCOVER THOUGHTS",
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      letterSpacing: 1.5,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white.withValues(alpha: 0.3),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Feed Posts
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    return _AnimatedPostCard(
+                      post: _posts[index],
+                      index: index,
+                    );
+                  },
+                  childCount: _posts.length,
+                ),
+              ),
+            ],
+
+            const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -154,25 +163,6 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard> with SingleTickerP
       child: SlideTransition(
         position: _slideAnimation,
         child: PostCard(post: widget.post),
-      ),
-    );
-  }
-}
-
-class _FeedSkeleton extends StatelessWidget {
-  const _FeedSkeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      itemCount: 5,
-      itemBuilder: (context, index) => Container(
-        height: 200,
-        margin: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.03),
-          borderRadius: BorderRadius.circular(24),
-        ),
       ),
     );
   }

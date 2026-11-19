@@ -23,7 +23,7 @@ if all([SMTP_SERVER, SMTP_PORT, SMTP_LOGIN, SMTP_PASSWORD]):
     logger.info("SMTP configuration loaded successfully.")
     SMTP_PORT = int(SMTP_PORT)
 else:
-    logger.error("SMTP configuration is missing in environment variables.")
+    logger.info("SMTP configuration is not set (email verification running in fallback development mode).")
 
 def generate_otp():
     return "".join([str(random.randint(0, 9)) for _ in range(6)])

@@ -1,5 +1,6 @@
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter/foundation.dart';
+import '../core/constants/api_constants.dart';
 
 class SocketService with ChangeNotifier {
   late IO.Socket socket;
@@ -7,69 +8,123 @@ class SocketService with ChangeNotifier {
   bool isSearching = false;
   String? partnerId;
   String? role; // 'caller' or 'receiver'
+  String? partnerUsername;
+  String? partnerCountry;
+  List<String> commonInterests = [];
 
-  // Getter for convenience in UI and WebRTC logic
   bool get isCaller => role == 'caller';
 
   // Callbacks for WebRTC signaling
   Function(Map<String, dynamic>)? onOffer;
   Function(Map<String, dynamic>)? onAnswer;
   Function(Map<String, dynamic>)? onIceCandidate;
-  Function()? onMatchFound;
-  Function()? onPartnerDisconnected;
+  Function(Map<String, dynamic>)? onMatchFound;
+  Function(Map<String, dynamic>)? onPartnerDisconnected;
+  Function(Map<String, dynamic>)? onChatMessage;
+  Function(bool)? onPartnerTyping;
+  Function(Map<String, dynamic>)? onPartnerMediaState;
+  Function(String)? onReportConfirmed;
+  Function()? onSearching;
 
   void initSocket() {
-    // UPDATED to use the provided IPv4 for real device testing
-    socket = IO.io('http://192.168.29.118:8000',
-      IO.OptionBuilder()
-        .setTransports(['websocket'])
-        .disableAutoConnect()
-        .build()
-    );
+    // Non-blocking background socket connection initialization
+    Future.microtask(() {
+      try {
+        socket = IO.io(
+          ApiConstants.baseUrl,
+          IO.OptionBuilder()
+            .setTransports(['websocket'])
+            .enableAutoConnect()
+            .enableReconnection()
+            .setReconnectionAttempts(5)
+            .setReconnectionDelay(2000)
+            .build()
+        );
 
-    socket.connect();
+        socket.connect();
 
-    socket.onConnect((_) {
-      print('Connected to Signaling Server');
-      isConnected = true;
-      notifyListeners();
-    });
+        socket.onConnect((_) {
+          debugPrint('Connected to Signaling Server');
+          isConnected = true;
+          notifyListeners();
+        });
 
-    socket.onDisconnect((_) {
-      print('Disconnected from Signaling Server');
-      isConnected = false;
-      notifyListeners();
-    });
+        socket.onDisconnect((_) {
+          debugPrint('Disconnected from Signaling Server');
+          isConnected = false;
+          notifyListeners();
+        });
 
-    socket.on('match_found', (data) {
-      print('MATCH EVENT RECEIVED: $data');
-      partnerId = data['partner_id'];
-      role = data['role'];
-      isSearching = false;
-      notifyListeners();
-      if (onMatchFound != null) {
-        onMatchFound!();
+        socket.on('match_found', (data) {
+          debugPrint('MATCH EVENT RECEIVED: $data');
+          final map = Map<String, dynamic>.from(data);
+          partnerId = map['partner_id'];
+          role = map['role'];
+          partnerUsername = map['partner_username'] ?? 'Stranger';
+          partnerCountry = map['partner_country'] ?? 'Global';
+          if (map['common_interests'] is List) {
+            commonInterests = List<String>.from(map['common_interests']);
+          } else {
+            commonInterests = [];
+          }
+          isSearching = false;
+          notifyListeners();
+          if (onMatchFound != null) {
+            onMatchFound!(map);
+          }
+        });
+
+        socket.on('searching', (_) {
+          isSearching = true;
+          partnerId = null;
+          role = null;
+          notifyListeners();
+          if (onSearching != null) onSearching!();
+        });
+
+        socket.on('offer', (data) {
+          if (onOffer != null) onOffer!(Map<String, dynamic>.from(data));
+        });
+
+        socket.on('answer', (data) {
+          if (onAnswer != null) onAnswer!(Map<String, dynamic>.from(data));
+        });
+
+        socket.on('ice_candidate', (data) {
+          if (onIceCandidate != null) onIceCandidate!(Map<String, dynamic>.from(data));
+        });
+
+        socket.on('chat_message', (data) {
+          if (onChatMessage != null) onChatMessage!(Map<String, dynamic>.from(data));
+        });
+
+        socket.on('partner_typing', (data) {
+          final isTyping = data['is_typing'] == true;
+          if (onPartnerTyping != null) onPartnerTyping!(isTyping);
+        });
+
+        socket.on('partner_media_state', (data) {
+          if (onPartnerMediaState != null) onPartnerMediaState!(Map<String, dynamic>.from(data));
+        });
+
+        socket.on('report_confirmed', (data) {
+          final msg = data is Map ? (data['message'] ?? 'Report received') : 'Report received';
+          if (onReportConfirmed != null) onReportConfirmed!(msg.toString());
+        });
+
+        socket.on('partner_disconnected', (data) {
+          debugPrint('Partner disconnected: $data');
+          partnerId = null;
+          role = null;
+          partnerUsername = null;
+          commonInterests = [];
+          final map = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+          if (onPartnerDisconnected != null) onPartnerDisconnected!(map);
+          notifyListeners();
+        });
+      } catch (e) {
+        debugPrint("Socket init error: $e");
       }
-    });
-
-    socket.on('offer', (data) {
-      if (onOffer != null) onOffer!(data);
-    });
-
-    socket.on('answer', (data) {
-      if (onAnswer != null) onAnswer!(data);
-    });
-
-    socket.on('ice_candidate', (data) {
-      if (onIceCandidate != null) onIceCandidate!(data);
-    });
-
-    socket.on('partner_disconnected', (_) {
-      print('Partner disconnected');
-      partnerId = null;
-      role = null;
-      if (onPartnerDisconnected != null) onPartnerDisconnected!();
-      notifyListeners();
     });
   }
 
@@ -77,22 +132,58 @@ class SocketService with ChangeNotifier {
     try {
       socket.disconnect();
       socket.dispose();
-      print("Socket disconnected and disposed");
+      debugPrint("Socket disconnected and disposed");
     } catch (e) {
-      print("Socket disconnect error: $e");
+      debugPrint("Socket disconnect error: $e");
     }
   }
 
-  void joinQueue() {
+  void joinQueue({Map<String, dynamic>? metadata}) {
     isSearching = true;
-    socket.emit('join_queue');
+    socket.emit('join_queue', metadata ?? {});
     notifyListeners();
   }
 
   void leaveQueue() {
     isSearching = false;
+    partnerId = null;
+    role = null;
     socket.emit('leave_queue');
     notifyListeners();
+  }
+
+  void skip() {
+    isSearching = true;
+    partnerId = null;
+    role = null;
+    socket.emit('skip');
+    notifyListeners();
+  }
+
+  void sendChatMessage(String text) {
+    if (text.trim().isEmpty) return;
+    socket.emit('chat_message', {
+      'text': text.trim(),
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+  }
+
+  void sendTyping(bool isTyping) {
+    socket.emit('partner_typing', {'is_typing': isTyping});
+  }
+
+  void sendMediaState({required bool isMuted, required bool isVideoOff}) {
+    socket.emit('media_state', {
+      'is_muted': isMuted,
+      'is_video_off': isVideoOff,
+    });
+  }
+
+  void reportPartner({required String reason, String details = ''}) {
+    socket.emit('report_partner', {
+      'reason': reason,
+      'details': details,
+    });
   }
 
   void sendOffer(Map<String, dynamic> offer) {
@@ -111,6 +202,9 @@ class SocketService with ChangeNotifier {
     socket.emit('end_call');
     partnerId = null;
     role = null;
+    partnerUsername = null;
+    commonInterests = [];
+    isSearching = false;
     notifyListeners();
   }
 

@@ -1,8 +1,10 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from ..models.user import User
 from ..models.swipe import Swipe
+from ..models.social import Follow, FollowRequest
 from ..models.notification import Notification
 from ..core.security import get_current_user
+from ..core.rate_limiter import limiter
 from ..websocket.signaling import sio
 from pydantic import BaseModel
 from datetime import datetime
@@ -10,77 +12,168 @@ from datetime import datetime
 router = APIRouter()
 
 class SwipeRequest(BaseModel):
-    target_user_id: str
-    action: str # "like", "pass", "super_like"
+    target_user_id: str # target username
+    action: str # "like" (swipe right), "pass" (swipe left), "super_like" (super swipe)
 
 @router.post("")
-async def perform_swipe(data: SwipeRequest, current_user: User = Depends(get_current_user)):
-    # 1. Prevent duplicate swipes
+@limiter.limit("30/minute")
+async def perform_swipe(request: Request, data: SwipeRequest, current_user: User = Depends(get_current_user)):
+    me = current_user.anonymous_username
+    target_username = data.target_user_id.strip()
+
+    if target_username == me:
+        raise HTTPException(status_code=400, detail="Cannot swipe on yourself")
+
+    target_user = await User.find_one({"anonymous_username": target_username})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Check blocks
+    if target_username in current_user.blocked_users or me in target_user.blocked_users:
+        raise HTTPException(status_code=403, detail="Interaction blocked")
+
+    # Store or update swipe record
     existing_swipe = await Swipe.find_one({
-        "user_id": current_user.anonymous_username,
-        "target_user_id": data.target_user_id
+        "user_id": me,
+        "target_user_id": target_username
     })
     if existing_swipe:
-        return {"success": False, "message": "Already swiped on this user"}
-
-    # 2. Store swipe
-    new_swipe = Swipe(
-        user_id=current_user.anonymous_username,
-        target_user_id=data.target_user_id,
-        action=data.action
-    )
-    await new_swipe.insert()
-
-    # 3. Handle Notification & Real-time Emit
-    if data.action in ["like", "super_like"]:
-        priority = 10 if data.action == "super_like" else 5
-        notification = Notification(
-            user_id=data.target_user_id,
-            type=data.action,
-            actor_ids=[current_user.anonymous_username],
-            message=f"{current_user.anonymous_username} liked your profile",
-            priority_score=priority
+        existing_swipe.action = data.action
+        existing_swipe.created_at = datetime.utcnow()
+        await existing_swipe.save()
+    else:
+        new_swipe = Swipe(
+            user_id=me,
+            target_user_id=target_username,
+            action=data.action
         )
-        await notification.insert()
-        
-        # Real-time WebSocket Emit
-        await sio.emit("notification_received", {
-            "type": data.action,
-            "actor": current_user.anonymous_username,
-            "message": notification.message
-        }, room=data.target_user_id)
+        await new_swipe.insert()
 
-    # 4. Detect mutual likes
+    # --- SWIPE LEFT (PASS) ---
+    if data.action == "pass":
+        return {
+            "success": True,
+            "status": "skipped",
+            "message": f"Skipped @{target_username}"
+        }
+
+    # --- SWIPE RIGHT (LIKE / SUPER_LIKE -> FOLLOW / FOLLOW REQUEST) ---
     if data.action in ["like", "super_like"]:
-        mutual_swipe = await Swipe.find_one({
-            "user_id": data.target_user_id,
-            "target_user_id": current_user.anonymous_username,
-            "action": {"$in": ["like", "super_like"]}
-        })
+        # 1. PUBLIC ACCOUNT: Immediately create Follow
+        if not target_user.is_private:
+            existing_follow = await Follow.find_one({
+                "follower_id": me,
+                "following_id": target_username
+            })
+            if not existing_follow:
+                follow = Follow(follower_id=me, following_id=target_username)
+                await follow.insert()
 
-        if mutual_swipe:
-            # Create Match Notification for BOTH
-            match_msg = f"You matched with {data.target_user_id}!"
-            for uid in [current_user.anonymous_username, data.target_user_id]:
-                partner = data.target_user_id if uid == current_user.anonymous_username else current_user.anonymous_username
-                match_notif = Notification(
-                    user_id=uid,
-                    type="match",
-                    actor_ids=[partner],
-                    message=f"You matched with {partner}!",
-                    priority_score=20
+                # Update counts
+                current_user.following_count += 1
+                await current_user.save()
+                target_user.followers_count += 1
+                await target_user.save()
+
+                # Notify recipient
+                notif = Notification(
+                    user_id=target_username,
+                    type="follow",
+                    actor_ids=[me],
+                    message=f"@{me} started following you",
+                    metadata={"from_user": me}
                 )
-                await match_notif.insert()
-                await sio.emit("notification_received", {
-                    "type": "match",
-                    "actor": partner,
-                    "message": match_notif.message
-                }, room=uid)
+                await notif.insert()
+
+                try:
+                    await sio.emit("notification_received", {
+                        "type": "follow",
+                        "actor": me,
+                        "message": notif.message
+                    }, room=target_username)
+                except Exception:
+                    pass
 
             return {
                 "success": True,
-                "match": True,
-                "matched_user": data.target_user_id
+                "status": "following",
+                "is_private": False,
+                "target_username": target_username,
+                "message": f"Following @{target_username}"
             }
 
-    return {"success": True, "match": False}
+        # 2. PRIVATE ACCOUNT: Create Follow Request with status 'pending'
+        else:
+            existing_request = await FollowRequest.find_one({
+                "from_user_id": me,
+                "to_user_id": target_username
+            })
+
+            if not existing_request:
+                freq = FollowRequest(
+                    from_user_id=me,
+                    to_user_id=target_username,
+                    status="pending"
+                )
+                await freq.insert()
+
+                notif = Notification(
+                    user_id=target_username,
+                    type="follow_request",
+                    actor_ids=[me],
+                    message=f"@{me} sent you a follow request through Discover.",
+                    metadata={"request_id": str(freq.id), "from_user": me}
+                )
+                await notif.insert()
+
+                try:
+                    await sio.emit("notification_received", {
+                        "type": "follow_request",
+                        "actor": me,
+                        "message": notif.message
+                    }, room=target_username)
+                except Exception:
+                    pass
+
+                return {
+                    "success": True,
+                    "status": "pending",
+                    "is_private": True,
+                    "target_username": target_username,
+                    "message": "Follow Request Sent"
+                }
+            else:
+                return {
+                    "success": True,
+                    "status": existing_request.status,
+                    "is_private": True,
+                    "target_username": target_username,
+                    "message": "Follow Request Already Sent"
+                }
+
+    return {"success": True, "status": "processed"}
+
+@router.post("/undo")
+async def undo_last_swipe(current_user: User = Depends(get_current_user)):
+    last_swipe = await Swipe.find({"user_id": current_user.anonymous_username}).sort("-created_at").first_or_none()
+    if not last_swipe:
+        raise HTTPException(status_code=404, detail="No previous swipe found")
+
+    target_username = last_swipe.target_user_id
+
+    # If it was a follow request or follow, clean it up
+    await FollowRequest.find({"from_user_id": current_user.anonymous_username, "to_user_id": target_username, "status": "pending"}).delete()
+
+    follow = await Follow.find_one({"follower_id": current_user.anonymous_username, "following_id": target_username})
+    if follow:
+        await follow.delete()
+        current_user.following_count = max(0, current_user.following_count - 1)
+        await current_user.save()
+
+        target = await User.find_one({"anonymous_username": target_username})
+        if target:
+            target.followers_count = max(0, target.followers_count - 1)
+            await target.save()
+
+    await last_swipe.delete()
+    return {"success": True, "message": f"Undid swipe on @{target_username}", "target_username": target_username}
