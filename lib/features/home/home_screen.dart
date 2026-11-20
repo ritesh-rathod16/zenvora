@@ -23,11 +23,19 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   bool _isAdmin = false;
   bool _isLoadingRole = true;
+  late PageController _pageController;
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: _selectedIndex);
     _checkRole();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
   Future<void> _checkRole() async {
@@ -60,6 +68,15 @@ class _HomeScreenState extends State<HomeScreen> {
     const NotificationsScreen(),  // 4: Activity (Likes, Follow Requests, Notifications)
     const ProfileScreen(),        // 5: Profile (User Profile & Stats)
   ];
+
+  void _onItemTapped(int index) {
+    setState(() => _selectedIndex = index);
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOut,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -110,10 +127,19 @@ class _HomeScreenState extends State<HomeScreen> {
               elevation: 0,
             )
           : null,
-      body: IndexedStack(index: _selectedIndex, children: _pages),
+      body: PageView(
+        controller: _pageController,
+        onPageChanged: (index) {
+          setState(() => _selectedIndex = index);
+        },
+        physics: _selectedIndex == 1
+            ? const NeverScrollableScrollPhysics() // Disable tab swipe on Discover screen to allow Tinder card swiping
+            : const BouncingScrollPhysics(),
+        children: _pages,
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
-        onTap: (i) => setState(() => _selectedIndex = i),
+        onTap: _onItemTapped,
         type: BottomNavigationBarType.fixed,
         backgroundColor: const Color(0xFF1A1A2E),
         selectedItemColor: const Color(0xFF6C63FF),
