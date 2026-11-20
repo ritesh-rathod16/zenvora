@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/services/api_service.dart';
 import '../../../widgets/safe_avatar.dart';
 import '../random_chat/video_chat_screen.dart';
 import 'chat_info_screen.dart';
+import 'widgets/message_bubble.dart';
+import 'widgets/message_composer.dart';
 
 class ChatScreen extends StatefulWidget {
   final String chatId;
@@ -381,221 +382,25 @@ class _ChatScreenState extends State<ChatScreen> {
                         itemBuilder: (context, index) {
                           final msg = _messages[_messages.length - 1 - index];
                           final isMe = msg['is_me'] == true;
-                          return _buildMessageItem(msg, isMe);
+                          return MessageBubble(
+                            message: msg,
+                            isMe: isMe,
+                            onLongPress: () => _showMessageOptions(msg, isMe),
+                            onDoubleTap: () => _doubleTapMessage(msg['_id'] ?? msg['id']),
+                          );
                         },
                       ),
           ),
-          _buildInputArea(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMessageItem(dynamic msg, bool isMe) {
-    final String type = msg['message_type'] ?? 'text';
-    final String content = msg['content'] ?? '';
-    final String? attachmentUrl = msg['attachment_url'];
-    final List reactions = msg['reactions'] as List? ?? [];
-    final String mode = msg['deletion_mode'] ?? 'never_delete';
-
-    if (type == "system") {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              content,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return GestureDetector(
-      onLongPress: () => _showMessageOptions(msg, isMe),
-      onDoubleTap: () => _doubleTapMessage(msg['_id'] ?? msg['id']),
-      child: Align(
-        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.all(12),
-          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
-          decoration: BoxDecoration(
-            color: isMe ? const Color(0xFF6C63FF) : const Color(0xFF1A1A2E),
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(16),
-              topRight: const Radius.circular(16),
-              bottomLeft: Radius.circular(isMe ? 16 : 4),
-              bottomRight: Radius.circular(isMe ? 4 : 16),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Attachment Media if present
-              if (attachmentUrl != null && attachmentUrl.isNotEmpty) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: CachedNetworkImage(
-                    imageUrl: attachmentUrl,
-                    width: double.infinity,
-                    height: 180,
-                    fit: BoxFit.cover,
-                    placeholder: (_, __) => Container(height: 180, color: Colors.white10),
-                    errorWidget: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white24),
-                  ),
-                ),
-                const SizedBox(height: 6),
-              ],
-
-              // Story or Post Share Context
-              if (type == "post_share" || type == "story_reply" || type == "story_reaction") ...[
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  margin: const EdgeInsets.only(bottom: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.black26,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        type == "post_share" ? Icons.share_rounded : Icons.auto_awesome_rounded,
-                        color: type == "post_share" ? const Color(0xFF00F0FF) : Colors.amberAccent,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          content,
-                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ] else
-                Text(content, style: const TextStyle(color: Colors.white, fontSize: 14)),
-
-              const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  if (mode == "immediately_delete")
-                    const Icon(Icons.local_fire_department_rounded, size: 10, color: Colors.orangeAccent)
-                  else if (mode == "delete_24h")
-                    const Icon(Icons.timer_outlined, size: 10, color: Colors.amberAccent),
-                  const Spacer(),
-                  if (isMe)
-                    Icon(
-                      msg['viewed_at'] != null ? Icons.done_all_rounded : (msg['delivered_at'] != null ? Icons.done_all_rounded : Icons.done_rounded),
-                      size: 12,
-                      color: msg['viewed_at'] != null ? const Color(0xFF00F0FF) : Colors.white54,
-                    ),
-                ],
-              ),
-
-              // Reactions list
-              if (reactions.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Wrap(
-                  spacing: 4,
-                  children: reactions.map((r) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(10)),
-                      child: Text("${r['emoji']}", style: const TextStyle(fontSize: 12)),
-                    );
-                  }).toList(),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInputArea() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: const BoxDecoration(
-        color: Color(0xFF1A1A2E),
-        border: Border(top: BorderSide(color: Colors.white10)),
-      ),
-      child: Column(
-        children: [
-          if (_replyingToContent != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              margin: const EdgeInsets.only(bottom: 8),
-              decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(12)),
-              child: Row(
-                children: [
-                  const Icon(Icons.reply_rounded, size: 16, color: Color(0xFF6C63FF)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      "Replying to: $_replyingToContent",
-                      style: const TextStyle(color: Colors.white70, fontSize: 12),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 16, color: Colors.white38),
-                    onPressed: () => setState(() {
-                      _replyingToMsgId = null;
-                      _replyingToContent = null;
-                    }),
-                  ),
-                ],
-              ),
-            ),
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.camera_alt_rounded, color: Color(0xFF6C63FF)),
-                tooltip: "Send Snap / View Once",
-                onPressed: _sendSnapCamera,
-              ),
-              IconButton(
-                icon: const Icon(Icons.add_photo_alternate_rounded, color: Colors.white70),
-                onPressed: _sendMedia,
-              ),
-              Expanded(
-                child: TextField(
-                  controller: _messageController,
-                  style: const TextStyle(color: Colors.white),
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _sendMessage(),
-                  decoration: InputDecoration(
-                    hintText: "Type a message...",
-                    hintStyle: const TextStyle(color: Colors.white30),
-                    filled: true,
-                    fillColor: Colors.black26,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              FloatingActionButton.small(
-                onPressed: () => _sendMessage(),
-                backgroundColor: const Color(0xFF6C63FF),
-                elevation: 0,
-                child: const Icon(Icons.send, color: Colors.white, size: 18),
-              ),
-            ],
+          MessageComposer(
+            controller: _messageController,
+            replyingToContent: _replyingToContent,
+            onCancelReply: () => setState(() {
+              _replyingToMsgId = null;
+              _replyingToContent = null;
+            }),
+            onSend: () => _sendMessage(),
+            onCamera: _sendSnapCamera,
+            onGallery: _sendMedia,
           ),
         ],
       ),
