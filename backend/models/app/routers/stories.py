@@ -328,16 +328,31 @@ async def react_to_story(story_id: str, body: StoryReactionRequest, current_user
     sender = current_user.anonymous_username
     recipient = story.author_id
 
-    # Record reaction on story
-    story.reactions.append({
-        "username": sender,
-        "emoji": body.emoji,
-        "created_at": datetime.utcnow().isoformat()
-    })
+    if story.reactions is None:
+        story.reactions = []
+
+    existing = next((r for r in story.reactions if r.get("username") == sender), None)
+    removed = False
+    if existing:
+        story.reactions.remove(existing)
+        if existing.get("emoji") != body.emoji:
+            story.reactions.append({
+                "username": sender,
+                "emoji": body.emoji,
+                "created_at": datetime.utcnow().isoformat()
+            })
+        else:
+            removed = True
+    else:
+        story.reactions.append({
+            "username": sender,
+            "emoji": body.emoji,
+            "created_at": datetime.utcnow().isoformat()
+        })
+
     await story.save()
 
-    # Deliver to owner's DM
-    if sender != recipient:
+    if not removed and sender != recipient:
         chat = await Chat.find_one({"participants": {"$all": [sender, recipient], "$size": 2}})
         if not chat:
             chat = Chat(participants=[sender, recipient], last_message=f"Reacted {body.emoji} to your story")
@@ -365,7 +380,7 @@ async def react_to_story(story_id: str, body: StoryReactionRequest, current_user
         )
         await notif.insert()
 
-    return {"success": True, "message": "Reaction sent to story owner"}
+    return {"success": True, "removed": removed, "emoji": body.emoji, "reactions_count": len(story.reactions)}
 
 @router.post("/{story_id}/reply")
 async def reply_to_story(story_id: str, body: StoryReplyRequest, current_user: User = Depends(get_current_user)):

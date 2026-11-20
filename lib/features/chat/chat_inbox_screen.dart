@@ -219,27 +219,14 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> with SingleTickerProv
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator(color: Color(0xFF6C63FF)))
-                  : RefreshIndicator(
-                      onRefresh: _fetchChats,
-                      color: const Color(0xFF6C63FF),
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 12),
-                          const NotesTray(),
-                          const Divider(color: Colors.white10, height: 1),
-                          Expanded(
-                            child: TabBarView(
-                              controller: _tabController,
-                              children: [
-                                _buildChatList(_chats),
-                                _buildChatList(_filterChats(1)),
-                                _buildChatList(_filterChats(2)),
-                                _buildChatList(_filterChats(3)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                  : TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildChatList(_chats),
+                        _buildChatList(_filterChats(1)),
+                        _buildChatList(_filterChats(2)),
+                        _buildChatList(_filterChats(3)),
+                      ],
                     ),
             ),
         ],
@@ -248,63 +235,74 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> with SingleTickerProv
   }
 
   Widget _buildChatList(List<dynamic> list) {
-    if (list.isEmpty) {
-      return const Center(child: Text("No conversations yet.", style: TextStyle(color: Colors.white38)));
-    }
-    return ListView.builder(
-      itemCount: list.length,
-      itemBuilder: (context, index) {
-        final chat = list[index];
-        final chatId = chat['_id'] ?? chat['id'];
-        final otherUser = chat['other_user'] ?? 'User';
-        final otherPhoto = chat['other_user_photo'];
-        final bool isPinned = chat['is_pinned'] == true;
-
-        return ListTile(
-          leading: SafeAvatar(
-            avatarUrl: otherPhoto,
-            username: otherUser.toString(),
-            radius: 24,
-          ),
-          title: Row(
-            children: [
-              Text("@$otherUser", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              if (isPinned) ...[
-                const SizedBox(width: 6),
-                const Icon(Icons.push_pin_rounded, color: Color(0xFF6C63FF), size: 14),
+    return RefreshIndicator(
+      onRefresh: _fetchChats,
+      color: const Color(0xFF6C63FF),
+      child: ListView.builder(
+        itemCount: list.length + 1,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return const Column(
+              children: [
+                SizedBox(height: 8),
+                NotesTray(),
+                Divider(color: Colors.white10, height: 1),
               ],
-            ],
-          ),
-          subtitle: Text(
-            chat['last_message'] ?? "Start a conversation",
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white54, fontSize: 13),
-          ),
-          trailing: PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert_rounded, color: Colors.white38, size: 20),
-            color: const Color(0xFF1A1A2E),
-            onSelected: (val) {
-              if (val == 'pin') _togglePin(chatId);
-              if (val == 'archive') _toggleArchive(chatId);
-              if (val == 'delete') _deleteChat(chatId);
+            );
+          }
+
+          final chat = list[index - 1];
+          final chatId = chat['_id'] ?? chat['id'];
+          final otherUser = chat['other_user'] ?? 'User';
+          final otherPhoto = chat['other_user_photo'];
+          final bool isPinned = chat['is_pinned'] == true;
+
+          return ListTile(
+            leading: SafeAvatar(
+              avatarUrl: otherPhoto,
+              username: otherUser.toString(),
+              radius: 24,
+            ),
+            title: Row(
+              children: [
+                Text("@$otherUser", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                if (isPinned) ...[
+                  const SizedBox(width: 6),
+                  const Icon(Icons.push_pin_rounded, color: Color(0xFF6C63FF), size: 14),
+                ],
+              ],
+            ),
+            subtitle: Text(
+              chat['last_message'] ?? "Start a conversation",
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white54, fontSize: 13),
+            ),
+            trailing: PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert_rounded, color: Colors.white38, size: 20),
+              color: const Color(0xFF1A1A2E),
+              onSelected: (val) {
+                if (val == 'pin') _togglePin(chatId);
+                if (val == 'archive') _toggleArchive(chatId);
+                if (val == 'delete') _deleteChat(chatId);
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(value: 'pin', child: Text(isPinned ? "Unpin chat" : "Pin chat", style: const TextStyle(color: Colors.white))),
+                const PopupMenuItem(value: 'archive', child: Text("Archive chat", style: TextStyle(color: Colors.white))),
+                const PopupMenuItem(value: 'delete', child: Text("Delete chat", style: TextStyle(color: Colors.redAccent))),
+              ],
+            ),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ChatScreen(chatId: chatId, otherUser: otherUser.toString()),
+                ),
+              ).then((_) => _fetchChats());
             },
-            itemBuilder: (_) => [
-              PopupMenuItem(value: 'pin', child: Text(isPinned ? "Unpin chat" : "Pin chat", style: const TextStyle(color: Colors.white))),
-              const PopupMenuItem(value: 'archive', child: Text("Archive chat", style: TextStyle(color: Colors.white))),
-              const PopupMenuItem(value: 'delete', child: Text("Delete chat", style: TextStyle(color: Colors.redAccent))),
-            ],
-          ),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ChatScreen(chatId: chatId, otherUser: otherUser.toString()),
-              ),
-            ).then((_) => _fetchChats());
-          },
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

@@ -4,7 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/services/api_service.dart';
 import '../../../widgets/safe_avatar.dart';
-import '../profile/user_profile_screen.dart';
+import '../random_chat/video_chat_screen.dart';
 import 'chat_info_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -158,6 +158,53 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {}
   }
 
+  Future<void> _doubleTapMessage(String messageId) async {
+    try {
+      await _apiService.post('/chats/${widget.chatId}/messages/$messageId/react', {
+        'emoji': '❤️'
+      });
+      _fetchMessages();
+    } catch (_) {}
+  }
+
+  Future<void> _sendSnapCamera() async {
+    final picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 75);
+    if (image != null && mounted) {
+      final bool? isViewOnce = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1A2E),
+          title: const Text("Send Snap", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: const Text("Do you want to send this as a View Once media?", style: TextStyle(color: Colors.white70)),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Normal Photo")),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6C63FF)),
+              child: const Text("View Once"),
+            ),
+          ],
+        ),
+      );
+
+      if (isViewOnce != null && mounted) {
+        try {
+          final res = await _apiService.uploadFile('/media/chat/upload', image.path);
+          if (res.statusCode == 200) {
+            final data = jsonDecode(res.body);
+            final url = data['url'] ?? data['profile_photo_url'];
+            _sendMessage(
+              type: isViewOnce ? "view_once" : "photo",
+              content: isViewOnce ? "📷 View Once Photo" : "📷 Photo",
+              attachmentUrl: url,
+            );
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
   void _openChatInfo() async {
     final result = await Navigator.push(
       context,
@@ -174,12 +221,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _openProfile(String username) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => UserProfileScreen(username: username)),
-    );
-  }
+
 
   Widget _getDisappearingIcon() {
     switch (_autoDeleteMode) {
@@ -305,7 +347,22 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.info_outline_rounded, color: Colors.white70),
+            icon: const Icon(Icons.phone_rounded, color: Colors.greenAccent),
+            tooltip: "Voice Call",
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const VideoChatScreen()));
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.videocam_rounded, color: Color(0xFF00F0FF)),
+            tooltip: "Video Call",
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const VideoChatScreen()));
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.more_vert_rounded, color: Colors.white70),
+            tooltip: "Chat Settings & Info",
             onPressed: _openChatInfo,
           ),
         ],
@@ -363,6 +420,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return GestureDetector(
       onLongPress: () => _showMessageOptions(msg, isMe),
+      onDoubleTap: () => _doubleTapMessage(msg['_id'] ?? msg['id']),
       child: Align(
         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
         child: Container(
@@ -505,6 +563,11 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           Row(
             children: [
+              IconButton(
+                icon: const Icon(Icons.camera_alt_rounded, color: Color(0xFF6C63FF)),
+                tooltip: "Send Snap / View Once",
+                onPressed: _sendSnapCamera,
+              ),
               IconButton(
                 icon: const Icon(Icons.add_photo_alternate_rounded, color: Colors.white70),
                 onPressed: _sendMedia,

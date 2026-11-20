@@ -14,7 +14,7 @@ class SocketService with ChangeNotifier {
 
   bool get isCaller => role == 'caller';
 
-  // Callbacks for WebRTC signaling
+  // Callbacks for WebRTC signaling & Live Chat Activity
   Function(Map<String, dynamic>)? onOffer;
   Function(Map<String, dynamic>)? onAnswer;
   Function(Map<String, dynamic>)? onIceCandidate;
@@ -23,11 +23,11 @@ class SocketService with ChangeNotifier {
   Function(Map<String, dynamic>)? onChatMessage;
   Function(bool)? onPartnerTyping;
   Function(Map<String, dynamic>)? onPartnerMediaState;
+  Function(Map<String, dynamic>)? onPartnerActivity;
   Function(String)? onReportConfirmed;
   Function()? onSearching;
 
   void initSocket() {
-    // Non-blocking background socket connection initialization
     Future.microtask(() {
       try {
         socket = IO.io(
@@ -103,6 +103,10 @@ class SocketService with ChangeNotifier {
           if (onPartnerTyping != null) onPartnerTyping!(isTyping);
         });
 
+        socket.on('partner_activity', (data) {
+          if (onPartnerActivity != null) onPartnerActivity!(Map<String, dynamic>.from(data));
+        });
+
         socket.on('partner_media_state', (data) {
           if (onPartnerMediaState != null) onPartnerMediaState!(Map<String, dynamic>.from(data));
         });
@@ -170,6 +174,14 @@ class SocketService with ChangeNotifier {
 
   void sendTyping(bool isTyping) {
     socket.emit('partner_typing', {'is_typing': isTyping});
+  }
+
+  void sendChatActivity({required String status, bool inChat = false, bool inCamera = false}) {
+    socket.emit('chat_activity', {
+      'status': status,
+      'in_chat': inChat,
+      'in_camera': inCamera,
+    });
   }
 
   void sendMediaState({required bool isMuted, required bool isVideoOff}) {
