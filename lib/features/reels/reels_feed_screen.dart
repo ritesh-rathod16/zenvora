@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../../core/services/api_service.dart';
 import '../../widgets/safe_avatar.dart';
 import '../../widgets/follow_button.dart';
+import '../../widgets/double_tap_heart.dart';
 import '../profile/user_profile_screen.dart';
 
 class ReelsFeedScreen extends StatefulWidget {
@@ -354,19 +355,21 @@ class _ReelItemWidgetState extends State<_ReelItemWidget> {
     final authorPhoto = widget.reel['author_photo'];
     final caption = widget.reel['caption'] ?? '';
 
-    return GestureDetector(
-      onTap: () {
-        if (_isInitialized && !_hasError) {
-          if (_controller.value.isPlaying) {
-            _controller.pause();
-          } else {
-            _controller.play();
+    return DoubleTapHeartOverlay(
+      onDoubleTap: _toggleLike,
+      child: GestureDetector(
+        onTap: () {
+          if (_isInitialized && !_hasError) {
+            if (_controller.value.isPlaying) {
+              _controller.pause();
+            } else {
+              _controller.play();
+            }
           }
-        }
-      },
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
+        },
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
           _hasError
               ? const Center(
                   child: Column(
@@ -484,6 +487,7 @@ class _ReelItemWidgetState extends State<_ReelItemWidget> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }

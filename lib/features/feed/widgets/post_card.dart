@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../core/services/api_service.dart';
 import '../../../widgets/safe_avatar.dart';
 import '../../../widgets/follow_button.dart';
+import '../../../widgets/double_tap_heart.dart';
 import '../../profile/user_profile_screen.dart';
 import '../models/post_model.dart';
 import 'confession_post.dart';
@@ -538,19 +539,22 @@ class _PostCardState extends State<PostCard> {
               const SizedBox(height: 12),
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
-                child: CachedNetworkImage(
-                  imageUrl: widget.post.mediaUrl!,
-                  width: double.infinity,
-                  height: 240,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
+                child: DoubleTapHeartOverlay(
+                  onDoubleTap: _toggleLike,
+                  child: CachedNetworkImage(
+                    imageUrl: widget.post.mediaUrl!,
+                    width: double.infinity,
                     height: 240,
-                    color: Colors.white.withValues(alpha: 0.05),
-                    child: const Center(
-                      child: CircularProgressIndicator(color: Color(0xFF6C63FF), strokeWidth: 2),
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(
+                      height: 240,
+                      color: Colors.white.withValues(alpha: 0.05),
+                      child: const Center(
+                        child: CircularProgressIndicator(color: Color(0xFF6C63FF), strokeWidth: 2),
+                      ),
                     ),
+                    errorWidget: (context, url, error) => const SizedBox.shrink(),
                   ),
-                  errorWidget: (context, url, error) => const SizedBox.shrink(),
                 ),
               ),
             ],
