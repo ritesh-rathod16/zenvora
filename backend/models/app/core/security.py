@@ -36,6 +36,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    db_exception = HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Database connectivity temporarily unavailable."
+    )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
@@ -43,8 +47,12 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
             raise credentials_exception
     except JWTError:
         raise credentials_exception
-    
-    user = await User.find_one({"email": email})
+
+    try:
+        user = await User.find_one({"email": email})
+    except Exception:
+        raise db_exception
+
     if user is None:
         raise credentials_exception
     return user

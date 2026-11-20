@@ -296,25 +296,37 @@ async def get_user_following(username: str, current_user: Optional[User] = Depen
     return result
 
 @router.post("/upload-profile-photo")
-async def upload_profile_photo(file: UploadFile = File(..., alias="file"), current_user: User = Depends(get_current_user)):
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Invalid image format")
-
+async def upload_profile_photo(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     content = await file.read()
-    img = Image.open(io.BytesIO(content)).convert("RGB")
-    img.thumbnail((512, 512))
-    output = io.BytesIO()
-    img.save(output, format="JPEG", quality=85)
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image file too large (max 10MB)")
+
+    try:
+        img = Image.open(io.BytesIO(content)).convert("RGB")
+        img.thumbnail((512, 512))
+        output = io.BytesIO()
+        img.save(output, format="JPEG", quality=85)
+        processed_bytes = output.getvalue()
+    except Exception as e:
+        logger.error(f"Failed to process uploaded image: {e}")
+        raise HTTPException(status_code=400, detail="Invalid image file or unsupported format")
 
     db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
     bucket = AsyncIOMotorGridFSBucket(db)
-    file_id = await bucket.upload_from_stream(f"profile_{current_user.id}.jpg", output.getvalue())
+    file_id = await bucket.upload_from_stream(
+        f"profile_{current_user.id}.jpg",
+        processed_bytes,
+        metadata={"contentType": "image/jpeg", "userId": str(current_user.id)}
+    )
 
     url = f"/media/profile/{file_id}"
     current_user.profile_photo_url = url
     current_user.avatar_url = url
     await current_user.save()
-    return {"url": url, "profile_photo_url": url}
+    return {"url": url, "profile_photo_url": url, "message": "Profile photo updated successfully"}
 
 @router.get("/me/settings")
 async def get_my_settings(current_user: User = Depends(get_current_user)):

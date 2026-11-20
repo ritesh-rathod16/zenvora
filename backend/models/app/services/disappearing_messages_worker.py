@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import random
 from datetime import datetime, timedelta, timezone
+from pymongo.errors import PyMongoError
 from ..models.chat import Message
 
 logger = logging.getLogger(__name__)
@@ -24,14 +26,24 @@ class DisappearingMessagesWorker:
             logger.info("Disappearing Messages Worker stopped.")
 
     async def _run_loop(self):
+        consecutive_errors = 0
         while self._running:
             try:
                 await self.cleanup_expired_messages()
+                consecutive_errors = 0
+                await asyncio.sleep(30)
             except asyncio.CancelledError:
+                logger.info("Disappearing messages cleanup loop cancelled.")
                 break
+            except (PyMongoError, TimeoutError) as e:
+                consecutive_errors += 1
+                backoff = min(60.0, (2.0 ** min(consecutive_errors, 5)) + random.uniform(0, 1))
+                logger.warning(f"Disappearing messages worker db delay (attempt {consecutive_errors}, retrying in {backoff:.1f}s): {e}")
+                await asyncio.sleep(backoff)
             except Exception as e:
-                logger.error(f"Error in disappearing messages cleanup loop: {e}")
-            await asyncio.sleep(30)
+                consecutive_errors += 1
+                logger.error(f"Disappearing messages worker unexpected error: {e}")
+                await asyncio.sleep(15)
 
     async def cleanup_expired_messages(self):
         now = datetime.now(timezone.utc)

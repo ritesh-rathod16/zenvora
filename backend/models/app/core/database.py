@@ -1,5 +1,6 @@
 import logging
 import os
+import asyncio
 from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from beanie import init_beanie
@@ -41,46 +42,62 @@ DOCUMENT_MODELS = [
 ]
 
 async def init_db() -> AsyncIOMotorDatabase:
-    """Initializes MongoDB Atlas connection with pooling and Beanie ODM."""
+    """Initializes MongoDB Atlas connection with retry backoff, pooling, and Beanie ODM."""
     global client, db
-    
+
+    if client is not None and db is not None:
+        try:
+            await db.command('ping')
+            return db
+        except Exception:
+            logger.warning("Existing MongoDB client ping failed. Re-initializing connection pool...")
+
     mongodb_uri = os.getenv("MONGODB_URL") or os.getenv("MONGODB_URI")
     if not mongodb_uri:
         raise ValueError("CRITICAL: MONGODB_URL or MONGODB_URI environment variable is not configured.")
 
     db_name = os.getenv("DATABASE_NAME", "zenvora")
+    max_retries = 3
+    retry_delay = 2.0
 
-    try:
-        logger.info(f"Connecting to MongoDB Atlas (database: {db_name})...")
-        client = AsyncIOMotorClient(
-            mongodb_uri,
-            minPoolSize=5,
-            maxPoolSize=50,
-            maxIdleTimeMS=45000,
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=10000,
-            socketTimeoutMS=20000,
-            retryWrites=True
-        )
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(f"Connecting to MongoDB Atlas (attempt {attempt}/{max_retries}, database: {db_name})...")
+            client = AsyncIOMotorClient(
+                mongodb_uri,
+                minPoolSize=5,
+                maxPoolSize=50,
+                maxIdleTimeMS=45000,
+                serverSelectionTimeoutMS=15000,
+                connectTimeoutMS=20000,
+                socketTimeoutMS=30000,
+                retryWrites=True,
+                retryReads=True
+            )
 
-        db = client[db_name]
+            db = client[db_name]
 
-        # Verify connection immediately against application database
-        await db.command('ping')
-        logger.info(f"MongoDB Atlas connection to '{db_name}' successfully verified.")
+            # Verify connection with ping
+            await db.command('ping')
+            logger.info(f"MongoDB Atlas connection to '{db_name}' successfully verified.")
 
-        # Initialize all Beanie ODM document models
-        await init_beanie(
-            database=db,
-            document_models=DOCUMENT_MODELS,
-            allow_index_dropping=True
-        )
-        logger.info(f"Beanie ODM initialized with {len(DOCUMENT_MODELS)} document models.")
+            # Initialize Beanie ODM document models
+            await init_beanie(
+                database=db,
+                document_models=DOCUMENT_MODELS,
+                allow_index_dropping=True
+            )
+            logger.info(f"Beanie ODM initialized with {len(DOCUMENT_MODELS)} document models.")
 
-        return db
-    except Exception as e:
-        logger.error(f"Failed to connect to MongoDB Atlas: {e}", exc_info=True)
-        raise
+            return db
+        except Exception as e:
+            logger.error(f"MongoDB Atlas connection attempt {attempt} failed: {e}")
+            if attempt == max_retries:
+                raise
+            await asyncio.sleep(retry_delay)
+            retry_delay *= 2.0
+
+    return db
 
 async def close_db():
     """Closes MongoDB connection pool gracefully."""
