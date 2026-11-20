@@ -9,6 +9,7 @@ import '../../widgets/safe_avatar.dart';
 import '../../widgets/follow_button.dart';
 import '../../widgets/double_tap_heart.dart';
 import '../profile/user_profile_screen.dart';
+import 'widgets/reel_options_sheet.dart';
 
 class ReelsFeedScreen extends StatefulWidget {
   const ReelsFeedScreen({super.key});
@@ -252,6 +253,18 @@ class _ReelItemWidgetState extends State<_ReelItemWidget> {
     super.dispose();
   }
 
+  void _showOptionsSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ReelOptionsSheet(
+        reel: widget.reel,
+        apiService: widget.apiService,
+      ),
+    );
+  }
+
   Future<void> _toggleLike() async {
     setState(() {
       _isLiked = !_isLiked;
@@ -481,6 +494,11 @@ class _ReelItemWidgetState extends State<_ReelItemWidget> {
                   onPressed: () {
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Reel shared successfully!")));
                   },
+                ),
+                const SizedBox(height: 16),
+                IconButton(
+                  icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 28),
+                  onPressed: _showOptionsSheet,
                 ),
               ],
             ),

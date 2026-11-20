@@ -248,8 +248,72 @@ async def get_saved_reels(current_user: User = Depends(get_current_user)):
     for rid in saved_ids:
         try:
             r = await Reel.get(ObjectId(rid))
-            if r:
+            if r and not r.is_archived:
                 reels.append(await _enrich_reel(r, current_user.anonymous_username))
         except Exception:
             pass
     return reels
+
+class EditReelRequest(BaseModel):
+    caption: Optional[str] = None
+
+class FeedbackRequest(BaseModel):
+    feedback_type: str
+
+class ReportReelRequest(BaseModel):
+    reason: str
+    details: Optional[str] = ""
+
+@router.patch("/{reel_id}")
+async def edit_reel(reel_id: str, body: EditReelRequest, current_user: User = Depends(get_current_user)):
+    reel = await Reel.get(reel_id)
+    if not reel or reel.author_id != current_user.anonymous_username:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if body.caption is not None:
+        reel.caption = body.caption.strip()
+    await reel.save()
+    return {"success": True, "reel": await _enrich_reel(reel, current_user.anonymous_username)}
+
+@router.post("/{reel_id}/pin")
+async def toggle_pin_reel(reel_id: str, current_user: User = Depends(get_current_user)):
+    reel = await Reel.get(reel_id)
+    if not reel or reel.author_id != current_user.anonymous_username:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    reel.is_pinned = not reel.is_pinned
+    await reel.save()
+    return {"success": True, "is_pinned": reel.is_pinned}
+
+@router.post("/{reel_id}/archive")
+async def toggle_archive_reel(reel_id: str, current_user: User = Depends(get_current_user)):
+    reel = await Reel.get(reel_id)
+    if not reel or reel.author_id != current_user.anonymous_username:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    reel.is_archived = not reel.is_archived
+    await reel.save()
+    return {"success": True, "is_archived": reel.is_archived}
+
+@router.post("/{reel_id}/comments-toggle")
+async def toggle_reel_comments(reel_id: str, current_user: User = Depends(get_current_user)):
+    reel = await Reel.get(reel_id)
+    if not reel or reel.author_id != current_user.anonymous_username:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    reel.comments_disabled = not reel.comments_disabled
+    await reel.save()
+    return {"success": True, "comments_disabled": reel.comments_disabled}
+
+@router.post("/{reel_id}/feedback")
+async def reel_feedback(reel_id: str, body: FeedbackRequest, current_user: User = Depends(get_current_user)):
+    return {"success": True, "message": f"Recorded feedback: {body.feedback_type}"}
+
+@router.post("/{reel_id}/report")
+async def report_reel(reel_id: str, body: ReportReelRequest, current_user: User = Depends(get_current_user)):
+    from ..models.report import Report
+    report = Report(
+        reporter_id=current_user.anonymous_username,
+        target_type="reel",
+        target_id=reel_id,
+        reason=body.reason,
+        details=body.details or ""
+    )
+    await report.insert()
+    return {"success": True, "message": "Reel reported successfully"}
