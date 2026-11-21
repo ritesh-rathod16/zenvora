@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
+import 'package:image_picker/image_picker.dart';
 import '../../core/services/api_service.dart';
 import '../feed/models/post_model.dart';
 import '../feed/widgets/post_card.dart';
 import '../feed/widgets/story_section.dart';
 import '../feed/widgets/trending_section.dart';
+import '../feed/widgets/story_editor_screen.dart';
+import '../chat/chat_inbox_screen.dart';
 
 class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
@@ -45,68 +48,97 @@ class _FeedScreenState extends State<FeedScreen> {
     }
   }
 
+  Future<void> _openStoryUploader() async {
+    final picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (image != null && mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => StoryEditorScreen(imagePath: image.path),
+        ),
+      );
+    }
+  }
+
+  void _handleHorizontalDrag(DragEndDetails details) {
+    if (details.primaryVelocity! > 300) {
+      // Swipe Right -> Open Direct Messages (ChatInboxScreen)
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ChatInboxScreen()),
+      );
+    } else if (details.primaryVelocity! < -300) {
+      // Swipe Left -> Open Story Upload
+      _openStoryUploader();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0F0F1A),
-      body: RefreshIndicator(
-        onRefresh: _fetchFeed,
-        color: const Color(0xFF6C63FF),
-        backgroundColor: const Color(0xFF1A1A2E),
-        child: CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-          slivers: [
-            // App Bar / Stories (Always loads independently and immediately)
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.only(top: 12.0),
-                child: StorySection(),
-              ),
-            ),
-
-            if (_isLoading)
-              const SliverFillRemaining(
-                child: Center(
-                  child: CircularProgressIndicator(color: Color(0xFF6C63FF)),
-                ),
-              )
-            else ...[
-              // Trending Section
-              SliverToBoxAdapter(
-                child: TrendingSection(trendingPosts: _trendingPosts),
-              ),
-
-              // Main Feed Header
-              SliverToBoxAdapter(
+      body: GestureDetector(
+        onHorizontalDragEnd: _handleHorizontalDrag,
+        child: RefreshIndicator(
+          onRefresh: _fetchFeed,
+          color: const Color(0xFF6C63FF),
+          backgroundColor: const Color(0xFF1A1A2E),
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+            slivers: [
+              // App Bar / Stories (Always loads independently and immediately)
+              const SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-                  child: Text(
-                    "DISCOVER THOUGHTS",
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      letterSpacing: 1.5,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white.withValues(alpha: 0.3),
+                  padding: EdgeInsets.only(top: 12.0),
+                  child: StorySection(),
+                ),
+              ),
+
+              if (_isLoading)
+                const SliverFillRemaining(
+                  child: Center(
+                    child: CircularProgressIndicator(color: Color(0xFF6C63FF)),
+                  ),
+                )
+              else ...[
+                // Trending Section
+                SliverToBoxAdapter(
+                  child: TrendingSection(trendingPosts: _trendingPosts),
+                ),
+
+                // Main Feed Header
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+                    child: Text(
+                      "DISCOVER THOUGHTS",
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        letterSpacing: 1.5,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white.withValues(alpha: 0.3),
+                      ),
                     ),
                   ),
                 ),
-              ),
 
-              // Feed Posts
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    return _AnimatedPostCard(
-                      post: _posts[index],
-                      index: index,
-                    );
-                  },
-                  childCount: _posts.length,
+                // Feed Posts
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      return _AnimatedPostCard(
+                        post: _posts[index],
+                        index: index,
+                      );
+                    },
+                    childCount: _posts.length,
+                  ),
                 ),
-              ),
-            ],
+              ],
 
-            const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
-          ],
+              const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
+            ],
+          ),
         ),
       ),
     );
