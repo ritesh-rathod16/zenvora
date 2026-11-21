@@ -6,7 +6,6 @@ from jose import JWTError
 from ..services.matchmaking import matchmaker
 from ..core.security import decode_access_token
 from ..models.user import User
-from ..models.vibe import UserVibe, Vibe
 
 logger = logging.getLogger(__name__)
 sio = socketio.AsyncServer(async_mode='asgi')

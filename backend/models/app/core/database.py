@@ -20,7 +20,6 @@ from ..models.ghost import GhostIdentity
 from ..models.swipe import Swipe
 from ..models.match import Match
 from ..models.match_queue import MatchQueue
-from ..models.vibe import Vibe, UserVibe
 from ..models.comment import Comment
 from ..models.reel import Reel
 from ..models.livestream import LiveStream
@@ -40,7 +39,7 @@ DOCUMENT_MODELS = [
     PlatformSettings, Story, CallSession,
     GhostIdentity, Follow, FollowRequest,
     Swipe, Match, MatchQueue, Comment, Reel, LiveStream,
-    UserNote, StoryHighlight, InteractionEvent, UserInterestProfile, Vibe, UserVibe
+    UserNote, StoryHighlight, InteractionEvent, UserInterestProfile
 ]
 
 async def init_db() -> AsyncIOMotorDatabase:

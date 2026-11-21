@@ -8,19 +8,11 @@ from pymongo import ReturnDocument
 from pymongo.errors import PyMongoError
 from ..core.database import get_database
 from ..models.match import Match
-from ..models.user import User
-from ..models.vibe import UserVibe, Vibe
 
 logger = logging.getLogger(__name__)
 
 def _get_utc_now():
     return datetime.now(timezone.utc)
-
-
-def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
-    if value is None:
-        return None
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 class MatchmakingService:
     """
@@ -47,24 +39,8 @@ class MatchmakingService:
         user_id: str,
         interests: Optional[List[str]] = None,
         region: str = "Global",
-        trust_score: int = 100,
-        *,
-        owner_id: Optional[str] = None,
-        match_mode: str = "random",
-        vibe_id: Optional[str] = None,
-        preferred_vibes: Optional[List[str]] = None,
-        vibe_expires_at: Optional[datetime] = None,
+        trust_score: int = 100
     ) -> bool:
-        if match_mode not in {"random", "vibe"}:
-            return False
-        vibe_expires_at = _as_utc(vibe_expires_at)
-        if match_mode == "vibe" and (
-            not owner_id
-            or not vibe_id
-            or not vibe_expires_at
-            or vibe_expires_at <= _get_utc_now()
-        ):
-            return False
         collection = self._get_collection()
         if collection is None:
             logger.warning("Matchmaking: Database not ready for add_to_queue.")
@@ -79,12 +55,6 @@ class MatchmakingService:
                         "interests": interests or [],
                         "region": region or "Global",
                         "trust_score": trust_score if trust_score is not None else 100,
-                        "owner_id": owner_id,
-                        "match_mode": match_mode,
-                        "vibe_id": vibe_id,
-                        "preferred_vibes": preferred_vibes or [],
-                        "vibe_expires_at": vibe_expires_at,
-                        "queue_expires_at": now + timedelta(seconds=90) if match_mode == "vibe" else None,
                         "status": "waiting",
                         "matched_with": None,
                         "matching_session_id": None,
@@ -97,65 +67,11 @@ class MatchmakingService:
                 },
                 upsert=True
             )
-            logger.info("Matchmaking: User joined queue.")
+            logger.info(f"Matchmaking: User {user_id} joined queue.")
             return True
         except Exception:
             logger.error("Matchmaking add-to-queue operation failed.")
             return False
-
-    async def heartbeat_vibe_queue(self, owner_id: str) -> bool:
-        collection = self._get_collection()
-        if collection is None:
-            return False
-        now = _get_utc_now()
-        result = await collection.update_many(
-            {"owner_id": owner_id, "match_mode": "vibe", "status": "waiting", "vibe_expires_at": {"$gt": now}},
-            {"$set": {"queue_expires_at": now + timedelta(seconds=90), "updated_at": now}},
-        )
-        return result.modified_count > 0
-
-    async def cancel_vibe_queue_for_owner(self, owner_id: str) -> int:
-        """Remove only a user's waiting/claimed vibe requests, leaving active calls alone."""
-        collection = self._get_collection()
-        if collection is None:
-            return 0
-        now = _get_utc_now()
-        cursor = collection.find({
-            "owner_id": owner_id,
-            "match_mode": "vibe",
-            "status": {"$in": ["waiting", "claimed"]},
-        })
-        entries = await cursor.to_list(length=20)
-        for entry in entries:
-            session_id = entry.get("matching_session_id")
-            await collection.delete_one({"user_id": entry["user_id"], "status": entry["status"]})
-            if session_id:
-                await collection.update_many(
-                    {"matching_session_id": session_id, "status": "claimed"},
-                    {"$set": {
-                        "status": "waiting",
-                        "matched_with": None,
-                        "matching_session_id": None,
-                        "lease_expires_at": None,
-                        "updated_at": now,
-                    }},
-                )
-        return len(entries)
-
-    async def cleanup_expired_vibe_queue(self) -> int:
-        collection = self._get_collection()
-        if collection is None:
-            return 0
-        now = _get_utc_now()
-        result = await collection.delete_many({
-            "match_mode": "vibe",
-            "status": {"$in": ["waiting", "claimed"]},
-            "$or": [
-                {"queue_expires_at": {"$lte": now}},
-                {"vibe_expires_at": {"$lte": now}},
-            ],
-        })
-        return result.deleted_count
 
     async def remove_from_queue(self, user_id: str) -> bool:
         collection = self._get_collection()
@@ -217,258 +133,6 @@ class MatchmakingService:
             logger.error("Matchmaking lease recovery failed.")
             return 0
 
-    async def _vibe_pair_is_safe(
-        self,
-        caller_owner: str,
-        candidate_owner: str,
-        caller_vibe: Vibe,
-        candidate_vibe: Vibe,
-        now: datetime,
-        eligibility_check=None,
-        caller_session: Optional[str] = None,
-        candidate_session: Optional[str] = None,
-    ) -> bool:
-        caller = await User.find_one({"anonymous_username": caller_owner})
-        candidate = await User.find_one({"anonymous_username": candidate_owner})
-        if not caller or not candidate:
-            return False
-        if any((u.is_banned or u.shadow_banned or not u.is_active or u.role in {"admin", "super_admin"}) for u in (caller, candidate)):
-            return False
-        if caller.age is None or candidate.age is None or caller.age < 13 or candidate.age < 13:
-            return False
-        # Keep adult and under-18 users in separate pools for Vibe Matching.
-        if (caller.age >= 18) != (candidate.age >= 18):
-            return False
-        caller_minimum_age = max(caller_vibe.minimum_age, 18 if caller_vibe.vibe_id == "flirting" else 13)
-        candidate_minimum_age = max(candidate_vibe.minimum_age, 18 if candidate_vibe.vibe_id == "flirting" else 13)
-        if caller.age < caller_minimum_age or candidate.age < candidate_minimum_age:
-            return False
-        if candidate_owner in (caller.blocked_users or []) or caller_owner in (candidate.blocked_users or []):
-            return False
-
-        db = get_database()
-        if db is None:
-            return False
-        report = await db.get_collection("reports").find_one({
-            "$or": [
-                {"reporter_id": caller_owner, "reported_id": candidate_owner},
-                {"reporter_id": candidate_owner, "reported_id": caller_owner},
-            ]
-        })
-        if report:
-            return False
-        if eligibility_check and caller_session and candidate_session:
-            if not await eligibility_check(caller_session, candidate_session):
-                return False
-        return True
-
-    async def _find_vibe_match(self, current_user_id: str, caller: dict, collection, now: datetime, session_id: str, lease_expires: datetime, eligibility_check=None) -> Optional[str]:
-        caller_owner = caller.get("owner_id")
-        caller_vibe_id = caller.get("vibe_id")
-        db = get_database()
-        if not caller_owner or not caller_vibe_id or not db:
-            await collection.delete_one({"user_id": current_user_id, "matching_session_id": session_id})
-            return None
-
-        caller_presence = await UserVibe.find_one({
-            "user_id": caller_owner,
-            "vibe_id": caller_vibe_id,
-            "expires_at": {"$gt": now},
-        })
-        caller_vibe = await Vibe.find_one({"vibe_id": caller_vibe_id, "is_active": True})
-        caller_user = await User.find_one({"anonymous_username": caller_owner})
-        if not caller_presence or not caller_vibe or not caller_user or caller_user.age is None:
-            await collection.delete_one({"user_id": current_user_id, "matching_session_id": session_id})
-            return None
-        if set(caller_presence.preferred_vibes or []) != set(caller.get("preferred_vibes", [])):
-            await collection.delete_one({"user_id": current_user_id, "matching_session_id": session_id})
-            return None
-        caller_minimum_age = max(caller_vibe.minimum_age, 18 if caller_vibe.vibe_id == "flirting" else 13)
-        if caller_user.age < caller_minimum_age:
-            await collection.delete_one({"user_id": current_user_id, "matching_session_id": session_id})
-            return None
-
-        all_vibes = await Vibe.find({"is_active": True}).to_list()
-        vibe_by_id = {v.vibe_id: v for v in all_vibes}
-        statuses = [{"status": "waiting"}, {"status": "claimed", "lease_expires_at": {"$lt": now}}]
-        query = {
-            "user_id": {"$ne": current_user_id},
-            "owner_id": {"$ne": caller_owner},
-            "match_mode": "vibe",
-            "status": {"$in": ["waiting", "claimed"]},
-            "vibe_expires_at": {"$gt": now},
-            "queue_expires_at": {"$gt": now},
-            "vibe_id": {"$in": list(vibe_by_id)},
-        }
-        if caller.get("region") != "Global":
-            query["region"] = {"$in": [caller.get("region"), "Global"]}
-        cursor = collection.find(query).sort([("trust_score", -1), ("created_at", 1)]).limit(50)
-        candidates = await cursor.to_list(length=50)
-
-        eligible = []
-        caller_interests = set(caller.get("interests", []))
-        caller_preferences = set(caller.get("preferred_vibes", []))
-        for candidate in candidates:
-            candidate_owner = candidate.get("owner_id")
-            candidate_vibe = vibe_by_id.get(candidate.get("vibe_id"))
-            if not candidate_owner or not candidate_vibe:
-                continue
-            if caller_preferences and candidate_vibe.vibe_id not in caller_preferences:
-                continue
-            candidate_preferences = set(candidate.get("preferred_vibes", []))
-            if candidate_preferences and caller_vibe_id not in candidate_preferences:
-                continue
-
-            if candidate_vibe.vibe_id == caller_vibe_id:
-                compatibility = 2
-            elif (
-                candidate_vibe.vibe_id in caller_vibe.compatible_vibes
-                and caller_vibe_id in candidate_vibe.compatible_vibes
-            ):
-                compatibility = 1
-            elif (
-                caller_vibe.allow_fallback
-                and candidate_vibe.allow_fallback
-                and caller_vibe.fallback_group
-                and caller_vibe.fallback_group == candidate_vibe.fallback_group
-            ):
-                compatibility = 0
-            else:
-                continue
-
-            safe = await self._vibe_pair_is_safe(
-                caller_owner,
-                candidate_owner,
-                caller_vibe,
-                candidate_vibe,
-                now,
-                eligibility_check,
-                current_user_id,
-                candidate["user_id"],
-            )
-            if not safe:
-                continue
-            presence = await UserVibe.find_one({
-                "user_id": candidate_owner,
-                "vibe_id": candidate_vibe.vibe_id,
-                "expires_at": {"$gt": now},
-            })
-            if not presence or set(presence.preferred_vibes or []) != candidate_preferences:
-                continue
-            common_interests = len(caller_interests & set(candidate.get("interests", [])))
-            eligible.append((candidate, candidate_vibe, compatibility, common_interests))
-
-        cutoff = now - timedelta(days=14)
-        recent_matches = await db.get_collection("matches").find({
-            "created_at": {"$gte": cutoff},
-            "$or": [{"user1": caller_owner}, {"user2": caller_owner}],
-        }).to_list(length=1000)
-        recently_matched = {
-            row.get("user2") if row.get("user1") == caller_owner else row.get("user1")
-            for row in recent_matches
-        }
-        if any(row[0].get("owner_id") not in recently_matched for row in eligible):
-            eligible = [row for row in eligible if row[0].get("owner_id") not in recently_matched]
-        eligible.sort(key=lambda row: (row[2], row[3], row[0].get("trust_score", 100)), reverse=True)
-
-        partner_id = None
-        partner_owner = None
-        for candidate, candidate_vibe, _, _ in eligible:
-            cand_id = candidate["user_id"]
-            candidate_claim = await collection.find_one_and_update(
-                {
-                    "user_id": cand_id,
-                    "owner_id": candidate.get("owner_id"),
-                    "match_mode": "vibe",
-                    "vibe_id": candidate_vibe.vibe_id,
-                    "vibe_expires_at": {"$gt": now},
-                    "queue_expires_at": {"$gt": now},
-                    "$or": statuses,
-                },
-                {"$set": {
-                    "status": "claimed",
-                    "matched_with": current_user_id,
-                    "matching_session_id": session_id,
-                    "lease_expires_at": lease_expires,
-                    "updated_at": now,
-                }},
-                return_document=ReturnDocument.AFTER,
-            )
-            if not candidate_claim:
-                continue
-
-            # Recheck after the atomic claim in case a block, report, or preference changed meanwhile.
-            current_presence = await UserVibe.find_one({
-                "user_id": caller_owner,
-                "vibe_id": caller_vibe_id,
-                "expires_at": {"$gt": now},
-            })
-            candidate_presence = await UserVibe.find_one({
-                "user_id": candidate.get("owner_id"),
-                "vibe_id": candidate_vibe.vibe_id,
-                "expires_at": {"$gt": now},
-            })
-            safe = current_presence and candidate_presence and await self._vibe_pair_is_safe(
-                caller_owner,
-                candidate.get("owner_id"),
-                caller_vibe,
-                candidate_vibe,
-                now,
-                eligibility_check,
-                current_user_id,
-                cand_id,
-            )
-            safe = bool(
-                safe
-                and set(current_presence.preferred_vibes or []) == set(caller.get("preferred_vibes", []))
-                and set(candidate_presence.preferred_vibes or []) == set(candidate.get("preferred_vibes", []))
-            )
-            if safe:
-                partner_id = cand_id
-                partner_owner = candidate.get("owner_id")
-                break
-            await collection.update_one(
-                {"user_id": cand_id, "matching_session_id": session_id, "status": "claimed"},
-                {"$set": {
-                    "status": "waiting",
-                    "matched_with": None,
-                    "matching_session_id": None,
-                    "lease_expires_at": None,
-                    "updated_at": _get_utc_now(),
-                }},
-            )
-
-        if not partner_id:
-            caller_queue_expiry = caller.get("queue_expires_at")
-            caller_queue_expiry = _as_utc(caller_queue_expiry)
-            if caller_queue_expiry and caller_queue_expiry <= now:
-                await collection.delete_one({"user_id": current_user_id, "matching_session_id": session_id})
-            else:
-                await collection.update_one(
-                    {"user_id": current_user_id, "matching_session_id": session_id},
-                    {"$set": {
-                        "status": "waiting",
-                        "matched_with": None,
-                        "matching_session_id": None,
-                        "lease_expires_at": None,
-                        "updated_at": _get_utc_now(),
-                    }},
-                )
-            return None
-
-        match_time = _get_utc_now()
-        await collection.update_one(
-            {"user_id": current_user_id, "matching_session_id": session_id},
-            {"$set": {"status": "matched", "matched_with": partner_id, "updated_at": match_time}},
-        )
-        await collection.update_one(
-            {"user_id": partner_id, "matching_session_id": session_id},
-            {"$set": {"status": "matched", "matched_with": current_user_id, "updated_at": match_time}},
-        )
-        await Match(user1=caller_owner, user2=partner_owner, created_at=match_time).insert()
-        logger.info("Vibe matchmaking established a pair.")
-        return partner_id
-
     async def find_match(
         self,
         current_user_id: str,
@@ -509,36 +173,17 @@ class MatchmakingService:
             if not caller:
                 return None
 
-            if caller.get("match_mode") == "vibe":
-                return await self._find_vibe_match(
-                    current_user_id,
-                    caller,
-                    collection,
-                    now,
-                    session_id,
-                    lease_expires,
-                    eligibility_check,
-                )
-
             caller_interests = set(caller.get("interests", []))
             caller_region = caller.get("region", "Global")
 
             # Step 2: Query candidate pool
             query = {
                 "user_id": {"$ne": current_user_id},
-                "$and": [
-                    {"$or": [
-                        {"status": "waiting"},
-                        {"status": "claimed", "lease_expires_at": {"$lt": now}}
-                    ]},
-                    {"$or": [
-                        {"match_mode": "random"},
-                        {"match_mode": {"$exists": False}},
-                    ]},
-                ],
+                "$or": [
+                    {"status": "waiting"},
+                    {"status": "claimed", "lease_expires_at": {"$lt": now}}
+                ]
             }
-            if caller.get("owner_id"):
-                query["owner_id"] = {"$ne": caller["owner_id"]}
 
             if caller_region != "Global":
                 query["region"] = {"$in": [caller_region, "Global"]}
@@ -567,16 +212,10 @@ class MatchmakingService:
                 claimed_candidate = await collection.find_one_and_update(
                     {
                         "user_id": cand_user_id,
-                        "$and": [
-                            {"$or": [
-                                {"status": "waiting"},
-                                {"status": "claimed", "lease_expires_at": {"$lt": now}}
-                            ]},
-                            {"$or": [
-                                {"match_mode": "random"},
-                                {"match_mode": {"$exists": False}},
-                            ]},
-                        ],
+                        "$or": [
+                            {"status": "waiting"},
+                            {"status": "claimed", "lease_expires_at": {"$lt": now}}
+                        ]
                     },
                     {
                         "$set": {
@@ -642,7 +281,6 @@ class MatchmakingService:
                     continue
 
                 await self.recover_expired_leases()
-                await self.cleanup_expired_vibe_queue()
 
                 q_size = await collection.count_documents({"status": "waiting"})
                 if q_size > 1:
@@ -655,17 +293,8 @@ class MatchmakingService:
                         if partner:
                             if on_match:
                                 on_match(uid, partner)
-                            caller_doc = await collection.find_one({"user_id": uid}) or {}
-                            await sio.emit('match_found', {
-                                'partner_id': partner,
-                                'role': 'caller',
-                                'match_mode': caller_doc.get('match_mode', 'random'),
-                            }, room=uid)
-                            await sio.emit('match_found', {
-                                'partner_id': uid,
-                                'role': 'receiver',
-                                'match_mode': caller_doc.get('match_mode', 'random'),
-                            }, room=partner)
+                            await sio.emit('match_found', {'partner_id': partner, 'role': 'caller'}, room=uid)
+                            await sio.emit('match_found', {'partner_id': uid, 'role': 'receiver'}, room=partner)
 
                 # Reset error counter on successful loop execution
                 consecutive_errors = 0

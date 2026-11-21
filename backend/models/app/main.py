@@ -11,13 +11,12 @@ from .routers import (
     voice_rooms, reports, media, admin, 
     icebreakers, social, stories, calls, ghost, swipe, reels,
     communities, ai, creator, livestream, monetization, connect, notifications,
-    recommendation, notes, vibes, highlights
+    recommendation, notes, highlights
 )
 from .websocket.signaling import sio_app, sio, set_pairing, pair_is_eligible
 from .services.matchmaking import matchmaker
 from .services.ghost_identity_service import ghost_service
 from .services.disappearing_messages_worker import disappearing_worker
-from .routers.vibes import seed_default_vibes
 from .models.user import User
 from .core.security import get_password_hash
 from .core.config import ADMIN_EMAIL, ADMIN_PASSWORD
@@ -41,7 +40,6 @@ async def lifespan(app: FastAPI):
     try:
         await init_db() # MongoDB Atlas with Beanie ODM
         await seed_admin()
-        await seed_default_vibes()
 
         # Start High-Concurrency Matchmaking Worker
         try:
@@ -157,7 +155,6 @@ app.include_router(connect, prefix="/connect", tags=["Zenvora Connect"])
 app.include_router(notifications, prefix="/notifications", tags=["Notifications & Activity"])
 app.include_router(recommendation, prefix="/recommendations", tags=["ZENVORA AI Recommendations"])
 app.include_router(notes, prefix="/notes", tags=["Instagram Notes"])
-app.include_router(vibes, prefix="/vibes", tags=["Vibe Matching"])
 app.include_router(highlights, prefix="/highlights", tags=["Story Highlights"])
 
 app.mount("/socket.io", sio_app)
