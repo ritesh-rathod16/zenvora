@@ -68,17 +68,31 @@ async def get_profile_photo(
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
-        bucket = AsyncIOMotorGridFSBucket(db)
-        grid_out = await bucket.open_download_stream(ObjectId(file_id))
-        owner_id = (grid_out.metadata or {}).get("userId")
-        owner = await User.get(owner_id) if owner_id else None
-        if not owner or f"/media/profile/{file_id}" not in {
-            owner.profile_photo_url,
-            owner.avatar_url,
-        }:
-            raise HTTPException(status_code=404, detail="Profile photo not found")
+        url_path = f"/media/profile/{file_id}"
+        owner = await User.find_one({
+            "$or": [
+                {"profile_photo_url": url_path},
+                {"avatar_url": url_path}
+            ]
+        })
+        if not owner:
+            bucket = AsyncIOMotorGridFSBucket(db)
+            grid_out = await bucket.open_download_stream(ObjectId(file_id))
+            owner_id = (grid_out.metadata or {}).get("userId")
+            if owner_id:
+                try:
+                    owner = await User.get(ObjectId(owner_id))
+                except Exception:
+                    pass
+            if not owner:
+                raise HTTPException(status_code=404, detail="Profile photo not found")
+        else:
+            bucket = AsyncIOMotorGridFSBucket(db)
+            grid_out = await bucket.open_download_stream(ObjectId(file_id))
+
         if current_user and owner and users_blocked(current_user, owner):
             raise HTTPException(status_code=404, detail="Profile photo not found")
+
         content = await grid_out.read()
         return Response(content=content, media_type="image/jpeg", headers={"X-Content-Type-Options": "nosniff"})
     except HTTPException:
