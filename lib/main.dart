@@ -30,7 +30,7 @@ void main() {
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => SocketService()..initSocket()),
+        ChangeNotifierProvider(create: (_) => SocketService()),
         ChangeNotifierProvider(create: (_) => VoiceService()),
         ChangeNotifierProvider(create: (_) => SocialProvider()),
       ],
@@ -38,13 +38,13 @@ void main() {
     ),
   );
 
-  // Request permissions safely after the first frame renders
+  // Initialize background services and permissions after the first frame renders
   WidgetsBinding.instance.addPostFrameCallback((_) {
-    _requestPermissions();
+    _initBackgroundServices();
   });
 }
 
-void _requestPermissions() {
+void _initBackgroundServices() {
   [
     Permission.camera,
     Permission.microphone,
