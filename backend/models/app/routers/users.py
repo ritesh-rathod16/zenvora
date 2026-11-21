@@ -185,15 +185,16 @@ async def edit_profile(body: EditProfileRequest, current_user: User = Depends(ge
         current_user.full_name = body.full_name.strip()
         current_user.display_name = body.full_name.strip()
 
-    if body.username is not None:
-        norm = normalize_username(body.username)
-        if not validate_username_format(norm):
-            raise HTTPException(status_code=400, detail="Invalid username format")
+    if body.username is not None and body.username.strip():
+        new_un = body.username.strip().lstrip('@')
+        norm = normalize_username(new_un)
         if norm != current_user.normalized_username:
+            if not validate_username_format(norm):
+                raise HTTPException(status_code=400, detail="Invalid username format")
             conflict = await User.find_one({"normalized_username": norm})
             if conflict:
                 raise HTTPException(status_code=409, detail="Username already taken")
-            current_user.anonymous_username = body.username.strip().lstrip('@')
+            current_user.anonymous_username = new_un
             current_user.normalized_username = norm
 
     if body.bio is not None:
