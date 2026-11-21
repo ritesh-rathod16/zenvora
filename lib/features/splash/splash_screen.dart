@@ -24,7 +24,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400),
+      duration: const Duration(milliseconds: 1000),
     );
 
     _fadeAnimation = CurvedAnimation(
@@ -32,17 +32,20 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       curve: const Interval(0.0, 0.7, curve: Curves.easeIn),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+    _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
       CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.7, curve: Curves.easeOutBack)),
     );
 
     _controller.forward();
 
-    // Initialize socket and check auth after first frame
+    // Defer socket initialization and auth check to avoid blocking first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      try {
-        Provider.of<SocketService>(context, listen: false).initSocket();
-      } catch (_) {}
+      final socketService = Provider.of<SocketService>(context, listen: false);
+      Future.microtask(() {
+        try {
+          socketService.initSocket();
+        } catch (_) {}
+      });
       _checkAuth();
     });
   }
@@ -53,8 +56,6 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
     String? token;
 
     try {
-      // Ensure smooth branding visibility for at least 1.2 seconds
-      await Future.delayed(const Duration(milliseconds: 1200));
       token = await _storage.read(key: 'token');
     } catch (e) {
       debugPrint('Secure storage read failed: $e');
