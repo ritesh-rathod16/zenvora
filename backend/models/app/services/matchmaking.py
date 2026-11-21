@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 def _get_utc_now():
     return datetime.now(timezone.utc)
 
+
+def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
 class MatchmakingService:
     """
     High-Concurrency Matchmaking Engine backed by MongoDB Atlas.
@@ -49,6 +55,16 @@ class MatchmakingService:
         preferred_vibes: Optional[List[str]] = None,
         vibe_expires_at: Optional[datetime] = None,
     ) -> bool:
+        if match_mode not in {"random", "vibe"}:
+            return False
+        vibe_expires_at = _as_utc(vibe_expires_at)
+        if match_mode == "vibe" and (
+            not owner_id
+            or not vibe_id
+            or not vibe_expires_at
+            or vibe_expires_at <= _get_utc_now()
+        ):
+            return False
         collection = self._get_collection()
         if collection is None:
             logger.warning("Matchmaking: Database not ready for add_to_queue.")
@@ -424,8 +440,7 @@ class MatchmakingService:
 
         if not partner_id:
             caller_queue_expiry = caller.get("queue_expires_at")
-            if caller_queue_expiry and caller_queue_expiry.tzinfo is None:
-                caller_queue_expiry = caller_queue_expiry.replace(tzinfo=timezone.utc)
+            caller_queue_expiry = _as_utc(caller_queue_expiry)
             if caller_queue_expiry and caller_queue_expiry <= now:
                 await collection.delete_one({"user_id": current_user_id, "matching_session_id": session_id})
             else:

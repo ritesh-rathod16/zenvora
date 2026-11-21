@@ -111,6 +111,10 @@ async def test_concurrent_vibe_requests_never_match_a_user_twice():
         await add_vibe_user(service, f"person-{index}", socket_id, "chill", interests=["music"])
 
     await asyncio.gather(*(service.find_match(socket_id) for socket_id in sockets))
+    waiting = await database.db.get_collection("match_queue").find({"status": "waiting"}).to_list(length=20)
+    for entry in waiting:
+        await service.find_match(entry["user_id"])
+
     matches = await database.db.get_collection("matches").find({}).to_list(length=20)
     matched_users = [user for match in matches for user in (match["user1"], match["user2"])]
     assert len(matches) == 4
@@ -174,7 +178,13 @@ async def test_age_safety_expiry_and_disconnect_cleanup():
     await add_vibe_user(service, "adult_pair", "socket-adult", "chill", age=21)
     assert await service.find_match("socket-minor") is None
 
-    await service.add_to_queue("expired-socket", owner_id="minor_user", match_mode="vibe", vibe_id="chill")
+    await service.add_to_queue(
+        "expired-socket",
+        owner_id="minor_user",
+        match_mode="vibe",
+        vibe_id="chill",
+        vibe_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
     await database.db.get_collection("match_queue").update_one(
         {"user_id": "expired-socket"},
         {"$set": {

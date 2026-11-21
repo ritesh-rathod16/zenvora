@@ -200,12 +200,11 @@ async def edit_profile(body: EditProfileRequest, current_user: User = Depends(ge
         current_user.bio = body.bio.strip()
     if body.website is not None:
         current_user.website = body.website.strip()
-    if body.date_of_birth is not None:
+    if body.date_of_birth and body.date_of_birth.strip():
         age = calculate_age(body.date_of_birth)
-        if age is None or age < 13 or age > 120:
-            raise HTTPException(status_code=400, detail="A valid date of birth for an eligible user is required")
-        current_user.date_of_birth = body.date_of_birth.strip()
-        current_user.age = age
+        if age is not None and 13 <= age <= 120:
+            current_user.date_of_birth = body.date_of_birth.strip()
+            current_user.age = age
     if body.gender is not None:
         current_user.gender = body.gender.strip()
     if body.country is not None:

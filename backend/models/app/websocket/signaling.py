@@ -145,7 +145,11 @@ async def join_queue(sid, data=None):
     username = user.anonymous_username
     interests = user.interests or []
     trust_score = user.trust_score
-    match_mode = "vibe" if data.get("match_mode") == "vibe" else "random"
+    requested_mode = data.get("match_mode", "random")
+    if requested_mode not in {"random", "vibe"}:
+        await sio.emit("matchmaking_error", {"message": "Invalid matchmaking mode"}, room=sid)
+        return False
+    match_mode = requested_mode
     country = user.country or "Global"
     region = country
     vibe_id = None

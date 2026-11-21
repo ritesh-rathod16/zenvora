@@ -2,6 +2,7 @@ from beanie import Document, Indexed
 from pydantic import Field
 from datetime import datetime
 from typing import Optional
+import pymongo
 
 class Report(Document):
     reporter_id: str # anonymous_username
@@ -19,3 +20,7 @@ class Report(Document):
 
     class Settings:
         name = "reports"
+        indexes = [
+            pymongo.IndexModel([("reporter_id", pymongo.ASCENDING), ("reported_id", pymongo.ASCENDING)], name="idx_reports_pair_direction"),
+            pymongo.IndexModel([("reported_id", pymongo.ASCENDING), ("reporter_id", pymongo.ASCENDING)], name="idx_reports_reverse_pair"),
+        ]

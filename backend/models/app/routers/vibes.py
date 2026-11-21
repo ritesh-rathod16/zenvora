@@ -82,6 +82,15 @@ class CreateVibeRequest(BaseModel):
     minimum_age: int = Field(default=13, ge=13, le=120)
     display_order: int = Field(default=0, ge=0, le=10000)
 
+    @field_validator("compatible_vibes")
+    @classmethod
+    def validate_compatible_vibes(cls, values: List[str]) -> List[str]:
+        if any(not VIBE_ID_PATTERN.fullmatch(value) for value in values):
+            raise ValueError("Compatibility values must be valid vibe IDs")
+        if len(set(values)) != len(values):
+            raise ValueError("Compatibility values cannot contain duplicates")
+        return values
+
 
 class UpdateVibeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -95,6 +104,17 @@ class UpdateVibeRequest(BaseModel):
     minimum_age: Optional[int] = Field(default=None, ge=13, le=120)
     display_order: Optional[int] = Field(default=None, ge=0, le=10000)
     is_active: Optional[bool] = None
+
+    @field_validator("compatible_vibes")
+    @classmethod
+    def validate_compatible_vibes(cls, values: Optional[List[str]]) -> Optional[List[str]]:
+        if values is None:
+            return values
+        if any(not VIBE_ID_PATTERN.fullmatch(value) for value in values):
+            raise ValueError("Compatibility values must be valid vibe IDs")
+        if len(set(values)) != len(values):
+            raise ValueError("Compatibility values cannot contain duplicates")
+        return values
 
 
 @router.get("")
@@ -201,7 +221,11 @@ async def update_vibe(
     vibe = await Vibe.find_one({"vibe_id": vibe_id})
     if not vibe:
         raise HTTPException(status_code=404, detail="Vibe not found")
-    updates = body.model_dump(exclude_unset=True)
+    updates = {
+        key: value
+        for key, value in body.model_dump(exclude_unset=True).items()
+        if value is not None
+    }
     if "compatible_vibes" in updates:
         known_ids = {v.vibe_id for v in await Vibe.find({"is_active": True}).to_list()}
         if any(item not in known_ids for item in updates["compatible_vibes"]):
