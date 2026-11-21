@@ -11,10 +11,11 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
+class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMixin {
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
   late final AnimationController _controller;
   late final Animation<double> _fadeAnimation;
+  late final Animation<double> _scaleAnimation;
   bool _isNavigating = false;
 
   @override
@@ -23,12 +24,16 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 1400),
     );
 
     _fadeAnimation = CurvedAnimation(
       parent: _controller,
-      curve: Curves.easeIn,
+      curve: const Interval(0.0, 0.7, curve: Curves.easeIn),
+    );
+
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.7, curve: Curves.easeOutBack)),
     );
 
     _controller.forward();
@@ -48,6 +53,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     String? token;
 
     try {
+      // Ensure smooth branding visibility for at least 1.2 seconds
+      await Future.delayed(const Duration(milliseconds: 1200));
       token = await _storage.read(key: 'token');
     } catch (e) {
       debugPrint('Secure storage read failed: $e');
@@ -75,64 +82,77 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0F0F1A),
-      body: Center(
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1A2E),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: const Color(0xFF6C63FF),
-                    width: 2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF6C63FF).withValues(alpha: 0.4),
-                      blurRadius: 30,
-                      spreadRadius: 5,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF0F0F1A), Color(0xFF1A1A2E), Color(0xFF0F0F1A)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Center(
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: ScaleTransition(
+              scale: _scaleAnimation,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(28),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1A2E),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xFF6C63FF),
+                        width: 2.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF6C63FF).withValues(alpha: 0.5),
+                          blurRadius: 40,
+                          spreadRadius: 8,
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.blur_on_rounded,
-                  size: 64,
-                  color: Color(0xFF6C63FF),
-                ),
+                    child: const Icon(
+                      Icons.blur_on_rounded,
+                      size: 72,
+                      color: Color(0xFF6C63FF),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  const Text(
+                    'ZENVORA',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 32,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 6,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Stay Anonymous. Stay Connected.',
+                    style: TextStyle(
+                      color: Colors.white54,
+                      fontSize: 14,
+                      letterSpacing: 1.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 64),
+                  const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      color: Color(0xFF6C63FF),
+                      strokeWidth: 2,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 24),
-              const Text(
-                'ZENVORA',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 4,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Stay Anonymous. Stay Connected.',
-                style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 13,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              const SizedBox(height: 48),
-              const SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(
-                  color: Color(0xFF6C63FF),
-                  strokeWidth: 2.5,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
