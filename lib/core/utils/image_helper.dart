@@ -1,15 +1,34 @@
+import '../constants/api_constants.dart';
+
 /// Helper utility for image processing, CDN optimization (ImageKit),
 /// validation, and fallback handling across the Zenvora platform.
 class ImageHelper {
   static const String defaultCdnDomain = "ik.imagekit.io";
 
-  /// Validates whether a given string is a non-empty, well-formed HTTP/HTTPS URL.
-  /// Rejects any synthetic avatar URLs like DiceBear to respect user photo uploads.
-  static bool isValidUrl(String? url) {
-    if (url == null || url.trim().isEmpty) return false;
+  /// Resolves relative backend paths (e.g. /media/profile/...) against ApiConstants.baseUrl
+  static String resolveUrl(String? url) {
+    if (url == null || url.trim().isEmpty) return "";
     final trimmed = url.trim();
-    if (trimmed.contains('dicebear.com')) return false;
+    if (trimmed.contains('dicebear.com')) return "";
+
     final uri = Uri.tryParse(trimmed);
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https') && uri.host.isNotEmpty) {
+      return trimmed;
+    }
+
+    if (trimmed.startsWith('/')) {
+      final base = ApiConstants.baseUrl;
+      return Uri.parse('$base/').resolve(trimmed).toString();
+    }
+
+    return trimmed;
+  }
+
+  /// Validates whether a given string is a non-empty, well-formed HTTP/HTTPS URL.
+  static bool isValidUrl(String? url) {
+    final resolved = resolveUrl(url);
+    if (resolved.isEmpty) return false;
+    final uri = Uri.tryParse(resolved);
     return uri != null && (uri.scheme == 'http' || uri.scheme == 'https') && uri.host.isNotEmpty;
   }
 
@@ -21,7 +40,6 @@ class ImageHelper {
   }
 
   /// Transforms and optimizes ImageKit CDN URLs dynamically.
-  /// If the URL does not belong to ImageKit, it is returned without modification.
   static String safeImage(
     String? url, {
     int width = 400,
@@ -29,15 +47,14 @@ class ImageHelper {
     int quality = 80,
     String format = 'auto',
   }) {
-    if (!isValidUrl(url)) {
+    final resolved = resolveUrl(url);
+    if (resolved.isEmpty) {
       return "";
     }
 
-    String trimmedUrl = url!.trim();
-
     // ImageKit CDN dynamic transformations
-    if (trimmedUrl.contains(defaultCdnDomain) || trimmedUrl.contains('imagekit.io')) {
-      final uri = Uri.parse(trimmedUrl);
+    if (resolved.contains(defaultCdnDomain) || resolved.contains('imagekit.io')) {
+      final uri = Uri.parse(resolved);
       final params = Map<String, String>.from(uri.queryParameters);
 
       final List<String> transforms = [];
@@ -54,14 +71,11 @@ class ImageHelper {
       return uri.replace(queryParameters: params).toString();
     }
 
-    return trimmedUrl;
+    return resolved;
   }
 
   /// Convenience method for optimized avatar image delivery.
   static String avatar(String? url, {int size = 150}) {
-    if (!isValidUrl(url)) {
-      return "";
-    }
     return safeImage(url, width: size, height: size, quality: 80);
   }
 
@@ -72,15 +86,15 @@ class ImageHelper {
 
   /// Returns the original image URL without CDN downscaling transformations.
   static String fullResolution(String? url) {
-    if (!isValidUrl(url)) return "";
-    final trimmedUrl = url!.trim();
+    final resolved = resolveUrl(url);
+    if (resolved.isEmpty) return "";
 
-    if (trimmedUrl.contains(defaultCdnDomain) || trimmedUrl.contains('imagekit.io')) {
-      final uri = Uri.parse(trimmedUrl);
+    if (resolved.contains(defaultCdnDomain) || resolved.contains('imagekit.io')) {
+      final uri = Uri.parse(resolved);
       final params = Map<String, String>.from(uri.queryParameters)..remove('tr');
       return uri.replace(queryParameters: params.isEmpty ? null : params).toString();
     }
 
-    return trimmedUrl;
+    return resolved;
   }
 }
