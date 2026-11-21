@@ -32,7 +32,7 @@ void main() {
       providers: [
         ChangeNotifierProvider(create: (_) => SocketService()..initSocket()),
         ChangeNotifierProvider(create: (_) => VoiceService()),
-        ChangeNotifierProvider(create: (_) => SocialProvider()..initFollowingList()),
+        ChangeNotifierProvider(create: (_) => SocialProvider()),
       ],
       child: const ZenvoraApp(),
     ),

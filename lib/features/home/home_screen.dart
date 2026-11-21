@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import '../../core/providers/social_provider.dart';
 import '../posts/feed_screen.dart';
 import '../discover/discovery_screen.dart';
 import '../search/search_people_screen.dart';
@@ -30,6 +32,9 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _pageController = PageController(initialPage: _selectedIndex);
     _checkRole();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<SocialProvider>(context, listen: false).initFollowingList();
+    });
   }
 
   @override
