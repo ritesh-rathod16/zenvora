@@ -166,19 +166,6 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> with SingleTickerProv
             },
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: const Color(0xFF6C63FF),
-          indicatorSize: TabBarIndicatorSize.label,
-          labelColor: const Color(0xFF6C63FF),
-          unselectedLabelColor: Colors.white54,
-          tabs: const [
-            Tab(text: "All"),
-            Tab(text: "Primary"),
-            Tab(text: "General"),
-            Tab(text: "Requests"),
-          ],
-        ),
       ),
       body: Column(
         children: [
@@ -219,13 +206,43 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> with SingleTickerProv
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator(color: Color(0xFF6C63FF)))
-                  : TabBarView(
-                      controller: _tabController,
+                  : Column(
                       children: [
-                        _buildChatList(_chats),
-                        _buildChatList(_filterChats(1)),
-                        _buildChatList(_filterChats(2)),
-                        _buildChatList(_filterChats(3)),
+                        // Notes Tray (Cleanly separated at top)
+                        const NotesTray(),
+                        const Divider(color: Colors.white10, height: 1),
+
+                        // Tab Bar for Categories
+                        Container(
+                          color: const Color(0xFF1A1A2E),
+                          child: TabBar(
+                            controller: _tabController,
+                            indicatorColor: const Color(0xFF6C63FF),
+                            indicatorSize: TabBarIndicatorSize.label,
+                            labelColor: const Color(0xFF6C63FF),
+                            unselectedLabelColor: Colors.white54,
+                            tabs: const [
+                              Tab(text: "All"),
+                              Tab(text: "Primary"),
+                              Tab(text: "General"),
+                              Tab(text: "Requests"),
+                            ],
+                          ),
+                        ),
+                        const Divider(color: Colors.white10, height: 1),
+
+                        // Chat List TabBarView
+                        Expanded(
+                          child: TabBarView(
+                            controller: _tabController,
+                            children: [
+                              _buildChatList(_chats),
+                              _buildChatList(_filterChats(1)),
+                              _buildChatList(_filterChats(2)),
+                              _buildChatList(_filterChats(3)),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
             ),
@@ -235,23 +252,16 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> with SingleTickerProv
   }
 
   Widget _buildChatList(List<dynamic> list) {
+    if (list.isEmpty) {
+      return const Center(child: Text("No conversations yet.", style: TextStyle(color: Colors.white38)));
+    }
     return RefreshIndicator(
       onRefresh: _fetchChats,
       color: const Color(0xFF6C63FF),
       child: ListView.builder(
-        itemCount: list.length + 1,
+        itemCount: list.length,
         itemBuilder: (context, index) {
-          if (index == 0) {
-            return const Column(
-              children: [
-                SizedBox(height: 8),
-                NotesTray(),
-                Divider(color: Colors.white10, height: 1),
-              ],
-            );
-          }
-
-          final chat = list[index - 1];
+          final chat = list[index];
           final chatId = chat['_id'] ?? chat['id'];
           final otherUser = chat['other_user'] ?? 'User';
           final otherPhoto = chat['other_user_photo'];
