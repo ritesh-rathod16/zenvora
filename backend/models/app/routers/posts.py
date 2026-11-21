@@ -5,6 +5,7 @@ from ..models.user import User
 from ..models.chat import Chat, Message
 from ..models.notification import Notification
 from ..core.security import get_current_user
+from ..core.security import users_blocked
 from ..core.rate_limiter import limiter
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
@@ -22,6 +23,11 @@ class CreateCommentRequest(BaseModel):
 
 class SharePostRequest(BaseModel):
     recipients: List[str] = Field(..., min_items=1)
+
+async def _ensure_post_access(post: Post, current_user: User):
+    author = await User.find_one({"anonymous_username": post.author_id})
+    if not author or users_blocked(current_user, author):
+        raise HTTPException(status_code=404, detail="Post not found")
 
 async def _enrich_post(post: Post, current_username: Optional[str] = None) -> Dict[str, Any]:
     author = await User.find_one({"anonymous_username": post.author_id})
@@ -88,6 +94,7 @@ async def like_post(request: Request, post_id: str, current_user: User = Depends
     post = await Post.get(post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+    await _ensure_post_access(post, current_user)
     
     uname = current_user.anonymous_username
     liked = False
@@ -166,6 +173,7 @@ async def add_comment(post_id: str, body: CreateCommentRequest, current_user: Us
     post = await Post.get(post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+    await _ensure_post_access(post, current_user)
 
     content = body.content.strip()
     if not content:
@@ -232,6 +240,7 @@ async def toggle_repost(post_id: str, current_user: User = Depends(get_current_u
     post = await Post.get(post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+    await _ensure_post_access(post, current_user)
 
     uname = current_user.anonymous_username
     reposted = False
@@ -281,6 +290,7 @@ async def share_post(post_id: str, body: SharePostRequest, current_user: User = 
     post = await Post.get(post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+    await _ensure_post_access(post, current_user)
 
     sender = current_user.anonymous_username
     sent_count = 0
@@ -288,6 +298,11 @@ async def share_post(post_id: str, body: SharePostRequest, current_user: User = 
     for recipient in body.recipients:
         if recipient == sender:
             continue
+        target = await User.find_one({"anonymous_username": recipient})
+        if not target:
+            raise HTTPException(status_code=404, detail="Recipient not found")
+        if users_blocked(current_user, target):
+            raise HTTPException(status_code=403, detail="Interaction blocked")
 
         # Find or create 1-on-1 Chat
         chat = await Chat.find_one({"participants": {"$all": [sender, recipient], "$size": 2}})

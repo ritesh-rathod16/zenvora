@@ -79,8 +79,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
 
       // 2. Load posts & reposts asynchronously
       _fetchUserPostsAndReposts();
-    } catch (e) {
-      debugPrint("Error fetching profile for $_cleanUsername: $e");
+    } catch (_) {
+      debugPrint("Public profile request failed.");
       if (mounted) setState(() => _isLoadingProfile = false);
     }
   }
@@ -100,8 +100,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
           _userReposts = jsonDecode(repostsRes.body);
         });
       }
-    } catch (e) {
-      debugPrint("Error fetching posts for $_cleanUsername: $e");
+    } catch (_) {
+      debugPrint("Public profile posts loading failed.");
     } finally {
       if (mounted) setState(() => _isLoadingContent = false);
     }
@@ -122,8 +122,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> with TickerProvid
           );
         }
       }
-    } catch (e) {
-      debugPrint("Start Chat Error: $e");
+    } catch (_) {
+      debugPrint("Chat start request failed.");
     }
   }
 

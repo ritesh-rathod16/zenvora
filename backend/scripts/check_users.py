@@ -13,8 +13,9 @@ async def main():
     await init_db()
     users = await User.find_all().to_list()
     print(f"Total users in DB: {len(users)}")
-    for u in users:
-        print(f"- Email: '{u.email}' | Username: '{u.anonymous_username}' | Active: {u.is_active} | Role: {u.role}")
+    active_count = sum(1 for user in users if user.is_active)
+    admin_count = sum(1 for user in users if user.is_admin or user.role in {"admin", "super_admin"})
+    print(f"Active users: {active_count}; admin accounts: {admin_count}")
     await close_db()
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ from ..models.user import User
 from ..models.chat import Chat, Message
 from ..models.notification import Notification
 from ..models.social import Follow
-from ..core.security import get_current_user, get_optional_current_user
+from ..core.security import get_current_user, get_optional_current_user, users_blocked
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket
@@ -37,6 +37,24 @@ class StorySettingsUpdateRequest(BaseModel):
 
 class StoryShareRequest(BaseModel):
     recipients: List[str] = Field(..., min_items=1)
+
+async def _ensure_story_access(story: Story, current_user: User) -> Optional[User]:
+    author = await User.find_one({"anonymous_username": story.author_id})
+    if not author or users_blocked(current_user, author):
+        raise HTTPException(status_code=404, detail="Story not found")
+    is_owner = current_user.anonymous_username == author.anonymous_username
+    expires_at = story.expires_at
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if not is_owner and expires_at and expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=404, detail="Story not found")
+    if not is_owner and (
+        current_user.anonymous_username in (author.hide_story_from or [])
+        or story.is_close_friends_only
+        and current_user.anonymous_username not in (author.close_friends or [])
+    ):
+        raise HTTPException(status_code=404, detail="Story not found")
+    return author
 
 def format_time_ago(dt: datetime) -> str:
     now = datetime.now(timezone.utc)
@@ -130,6 +148,7 @@ async def vote_on_story_poll(story_id: str, body: PollVoteRequest, current_user:
     story = await Story.get(story_id)
     if not story or not story.poll:
         raise HTTPException(status_code=404, detail="Poll not found on this story")
+    await _ensure_story_access(story, current_user)
 
     uname = current_user.anonymous_username
     poll = story.poll
@@ -207,9 +226,9 @@ async def create_story(
         )
         await new_story.insert()
         return await _enrich_story(new_story, current_user.anonymous_username)
-    except Exception as e:
-        logger.error(f"Story upload error: {e}")
-        raise HTTPException(status_code=400, detail=f"Failed to process story: {e}")
+    except Exception:
+        logger.error("Story upload failed.")
+        raise HTTPException(status_code=400, detail="Failed to process story")
 
 @router.get("/feed")
 async def get_stories_feed(current_user: Optional[User] = Depends(get_optional_current_user)):
@@ -223,6 +242,16 @@ async def get_stories_feed(current_user: Optional[User] = Depends(get_optional_c
     for story in all_stories:
         author = await User.find_one({"anonymous_username": story.author_id})
         if not author:
+            continue
+
+        if (
+            story.is_close_friends_only
+            and (
+                not viewer_name
+                or viewer_name != author.anonymous_username
+                and viewer_name not in (author.close_friends or [])
+            )
+        ):
             continue
 
         if viewer_name:
@@ -248,6 +277,7 @@ async def view_story(story_id: str, current_user: User = Depends(get_current_use
     story = await Story.get(story_id)
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
+    await _ensure_story_access(story, current_user)
 
     uname = current_user.anonymous_username
     already_viewed = any(v.get("username") == uname for v in story.views)
@@ -274,6 +304,7 @@ async def get_story_viewers(story_id: str, current_user: User = Depends(get_curr
     story = await Story.get(story_id)
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
+    await _ensure_story_access(story, current_user)
 
     if story.author_id != current_user.anonymous_username:
         raise HTTPException(status_code=403, detail="Only story owner can access full viewer list")
@@ -288,6 +319,7 @@ async def like_story(story_id: str, current_user: User = Depends(get_current_use
     story = await Story.get(story_id)
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
+    await _ensure_story_access(story, current_user)
 
     author = await User.find_one({"anonymous_username": story.author_id})
     if author and author.story_settings.get("allow_story_likes") is False:
@@ -321,7 +353,7 @@ async def react_to_story(story_id: str, body: StoryReactionRequest, current_user
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
 
-    author = await User.find_one({"anonymous_username": story.author_id})
+    author = await _ensure_story_access(story, current_user)
     if author and author.story_settings.get("allow_story_reactions") is False:
         raise HTTPException(status_code=403, detail="Story owner has disabled story reactions")
 
@@ -388,7 +420,7 @@ async def reply_to_story(story_id: str, body: StoryReplyRequest, current_user: U
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
 
-    author = await User.find_one({"anonymous_username": story.author_id})
+    author = await _ensure_story_access(story, current_user)
     if author:
         allow_replies = author.story_settings.get("allow_story_replies", "everyone")
         if allow_replies == "nobody":
@@ -437,7 +469,7 @@ async def share_story(story_id: str, body: StoryShareRequest, current_user: User
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
 
-    author = await User.find_one({"anonymous_username": story.author_id})
+    author = await _ensure_story_access(story, current_user)
     if author and author.story_settings.get("allow_story_sharing") is False:
         raise HTTPException(status_code=403, detail="Story owner has disabled story sharing")
 
@@ -447,6 +479,11 @@ async def share_story(story_id: str, body: StoryShareRequest, current_user: User
     for recipient in body.recipients:
         if recipient == sender:
             continue
+        target = await User.find_one({"anonymous_username": recipient})
+        if not target:
+            raise HTTPException(status_code=404, detail="Recipient not found")
+        if users_blocked(current_user, target):
+            raise HTTPException(status_code=403, detail="Interaction blocked")
 
         chat = await Chat.find_one({"participants": {"$all": [sender, recipient], "$size": 2}})
         if not chat:
@@ -512,11 +549,15 @@ async def delete_story(story_id: str, current_user: User = Depends(get_current_u
 
     from ..core.database import db
     bucket = AsyncIOMotorGridFSBucket(db)
-    try:
+    if story.media_url.startswith("/media/stories/"):
         file_id = story.media_url.split("/")[-1]
-        await bucket.delete(ObjectId(file_id))
-    except Exception:
-        pass
+        if not ObjectId.is_valid(file_id):
+            raise HTTPException(status_code=500, detail="Story media reference is invalid")
+        try:
+            await bucket.delete(ObjectId(file_id))
+        except Exception:
+            logger.error("Story media deletion failed.")
+            raise HTTPException(status_code=503, detail="Story media could not be deleted")
 
     await story.delete()
     return {"message": "Story deleted"}

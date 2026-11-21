@@ -13,6 +13,9 @@ class User(Document):
     password_hash: str
     date_of_birth: Optional[str] = None # YYYY-MM-DD
     age: Optional[int] = None
+    age_min: Optional[int] = None
+    age_max: Optional[int] = None
+    interested_in: Optional[str] = "everyone"
     gender: Optional[str] = "prefer_not_to_say"
     country: Optional[str] = "Global"
     city: Optional[str] = None
@@ -22,6 +25,7 @@ class User(Document):
 
     avatar_url: Optional[str] = None
     profile_photo_url: Optional[str] = None
+    voice_intro_url: Optional[str] = None
     public_encryption_key: Optional[str] = None
 
     # Privacy & Visibility Settings
@@ -73,6 +77,9 @@ class User(Document):
     role: str = "user"
     is_banned: bool = False
     shadow_banned: bool = False
+    verification_token: Optional[str] = None
+    verification_expires_at: Optional[datetime] = None
+    token_version: int = 0
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_active: datetime = Field(default_factory=datetime.utcnow)
 

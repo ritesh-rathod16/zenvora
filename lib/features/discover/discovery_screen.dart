@@ -130,8 +130,8 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
           );
         }
       }
-    } catch (e) {
-      debugPrint("Swipe error: $e");
+    } catch (_) {
+      debugPrint("Swipe request failed.");
     }
   }
 

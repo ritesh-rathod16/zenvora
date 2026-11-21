@@ -12,16 +12,11 @@ def get_client_identifier(request: Request) -> str:
     """
     Extract client identifier safely.
     Prefers authenticated user ID or fallback to remote IP.
-    Uses X-Forwarded-For safely if behind reverse proxy.
+    Uses the direct peer address; forwarded headers are untrusted unless a trusted
+    proxy is explicitly configured.
     """
     if hasattr(request.state, "user_id") and request.state.user_id:
         return f"user:{request.state.user_id}"
-
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        client_ip = forwarded.split(",")[0].strip()
-        if client_ip:
-            return f"ip:{client_ip}"
 
     return f"ip:{get_remote_address(request)}"
 
@@ -36,7 +31,7 @@ def _initialize_limiter() -> Limiter:
             import redis
             r = redis.from_url(redis_url, socket_timeout=0.2, connect_timeout=0.2)
             r.ping()
-            logger.info(f"Successfully connected to Redis at {redis_url}. Using Redis rate limiter storage.")
+            logger.info("Redis rate limiter storage is available.")
             return Limiter(
                 key_func=get_client_identifier,
                 storage_uri=redis_url,
@@ -55,7 +50,7 @@ def _initialize_limiter() -> Limiter:
 limiter = _initialize_limiter()
 
 def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
-    logger.warning(f"Rate limit exceeded for {get_client_identifier(request)}: {exc.detail}")
+    logger.warning("Rate limit exceeded.")
     response = JSONResponse(
         status_code=429,
         content={

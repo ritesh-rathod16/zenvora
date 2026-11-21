@@ -30,16 +30,14 @@ from models.app.models.story import Story
 from models.app.models.reel import Reel
 from models.app.models.admin import PlatformSettings
 from models.app.utils.auth import get_password_hash
-
-SEED_PASSWORD = "Password123!"
-DEFAULT_HASH = get_password_hash(SEED_PASSWORD)
+from models.app.core.config import ADMIN_EMAIL, ADMIN_PASSWORD, ENVIRONMENT, INSECURE_SECRETS
 
 USERS_DATA = [
     {
         "real_name": "Master Admin",
-        "email": "zenvora@gmail.com",
+        "email": "",
         "anonymous_username": "ZenvoraMaster",
-        "password_hash": get_password_hash("qwertyuiop"),
+        "password_hash": "",
         "age": 99,
         "country": "Global",
         "gender": "male",
@@ -58,7 +56,7 @@ USERS_DATA = [
         "real_name": "Elena Rostova",
         "email": "luna@zenvora.com",
         "anonymous_username": "LunaEcho",
-        "password_hash": DEFAULT_HASH,
+        "password_hash": "",
         "age": 22,
         "country": "Japan",
         "gender": "female",
@@ -78,7 +76,7 @@ USERS_DATA = [
         "real_name": "Kai Chen",
         "email": "cipher@zenvora.com",
         "anonymous_username": "CyberShadow",
-        "password_hash": DEFAULT_HASH,
+        "password_hash": "",
         "age": 26,
         "country": "Germany",
         "gender": "male",
@@ -98,7 +96,7 @@ USERS_DATA = [
         "real_name": "Astrid Lindgren",
         "email": "aurora@zenvora.com",
         "anonymous_username": "AuroraBorealis",
-        "password_hash": DEFAULT_HASH,
+        "password_hash": "",
         "age": 23,
         "country": "Norway",
         "gender": "female",
@@ -118,7 +116,7 @@ USERS_DATA = [
         "real_name": "Marcus Vance",
         "email": "pixel@zenvora.com",
         "anonymous_username": "PixelKnight",
-        "password_hash": DEFAULT_HASH,
+        "password_hash": "",
         "age": 25,
         "country": "Canada",
         "gender": "male",
@@ -138,7 +136,7 @@ USERS_DATA = [
         "real_name": "Maya Lin",
         "email": "velvet@zenvora.com",
         "anonymous_username": "VelvetVibe",
-        "password_hash": DEFAULT_HASH,
+        "password_hash": "",
         "age": 21,
         "country": "US",
         "gender": "female",
@@ -158,7 +156,7 @@ USERS_DATA = [
         "real_name": "Kenji Sato",
         "email": "samurai@zenvora.com",
         "anonymous_username": "CyberSamurai",
-        "password_hash": DEFAULT_HASH,
+        "password_hash": "",
         "age": 24,
         "country": "Japan",
         "gender": "male",
@@ -178,7 +176,7 @@ USERS_DATA = [
         "real_name": "Zane Miller",
         "email": "astro@zenvora.com",
         "anonymous_username": "AstroNaut",
-        "password_hash": DEFAULT_HASH,
+        "password_hash": "",
         "age": 22,
         "country": "UK",
         "gender": "male",
@@ -198,7 +196,7 @@ USERS_DATA = [
         "real_name": "Chloe Dubois",
         "email": "zenith@zenvora.com",
         "anonymous_username": "ZenithGlow",
-        "password_hash": DEFAULT_HASH,
+        "password_hash": "",
         "age": 23,
         "country": "France",
         "gender": "female",
@@ -358,6 +356,22 @@ REELS_DATA = [
 ]
 
 async def seed():
+    if ENVIRONMENT == "production":
+        raise RuntimeError("Demo data seeding is disabled in production.")
+    seed_password = os.getenv("SEED_PASSWORD")
+    if not seed_password or len(seed_password) < 12 or seed_password in INSECURE_SECRETS:
+        raise RuntimeError("SEED_PASSWORD must be a non-default password of at least 12 characters.")
+    if not ADMIN_EMAIL or not ADMIN_PASSWORD:
+        raise RuntimeError("ADMIN_EMAIL and ADMIN_PASSWORD must be configured to seed the admin account.")
+    if ADMIN_PASSWORD in INSECURE_SECRETS or len(ADMIN_PASSWORD) < 12:
+        raise RuntimeError("ADMIN_PASSWORD must be a non-default password of at least 12 characters.")
+
+    USERS_DATA[0]["email"] = ADMIN_EMAIL
+    USERS_DATA[0]["password_hash"] = get_password_hash(ADMIN_PASSWORD)
+    demo_password_hash = get_password_hash(seed_password)
+    for user_data in USERS_DATA[1:]:
+        user_data["password_hash"] = demo_password_hash
+
     logger.info("Connecting to MongoDB Atlas to seed data...")
     await init_db()
 
@@ -393,16 +407,19 @@ async def seed():
         if not existing:
             user = User(**u_data)
             await user.insert()
-            logger.info(f"  + User created: {user.anonymous_username} ({user.email})")
         else:
             for key, val in u_data.items():
+                if key in {
+                    "password_hash", "role", "is_admin", "is_banned",
+                    "shadow_banned", "token_version", "is_active",
+                }:
+                    continue
                 setattr(existing, key, val)
             if not existing.full_name:
                 existing.full_name = u_data["full_name"]
             if not existing.normalized_username:
                 existing.normalized_username = u_data["normalized_username"]
             await existing.save()
-            logger.info(f"  ~ User updated: {existing.anonymous_username} ({existing.email})")
 
     # 3. Seed Posts
     logger.info(f"Seeding {len(POSTS_DATA)} community posts...")
@@ -420,7 +437,6 @@ async def seed():
             created_at=now - timedelta(minutes=30)
         )
         await post.insert()
-        logger.info(f"  + Post created by {post.author_id} (media={bool(post.media_url)})")
 
     # 4. Seed Voice Rooms
     logger.info(f"Seeding {len(VOICE_ROOMS_DATA)} live voice rooms...")
@@ -429,7 +445,6 @@ async def seed():
     for r_data in VOICE_ROOMS_DATA:
         room = VoiceRoom(**r_data)
         await room.insert()
-        logger.info(f"  + Voice Room created: '{room.title}' in [{room.category}]")
 
     # 5. Seed Stories
     logger.info("Seeding community stories...")
@@ -444,7 +459,6 @@ async def seed():
             expires_at=now + timedelta(days=365)
         )
         await story.insert()
-        logger.info(f"  + Story created by {story.author_id}")
 
     # 6. Seed Reels
     logger.info("Seeding community reels...")
@@ -459,7 +473,6 @@ async def seed():
             created_at=now
         )
         await reel.insert()
-        logger.info(f"  + Reel created by {reel.author_id}")
 
     # 7. Seed Notifications
     logger.info("Seeding historical notifications for all users...")

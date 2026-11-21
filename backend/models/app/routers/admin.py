@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, status, WebSocket, WebSocketDisconnect, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, status, WebSocket, WebSocketDisconnect, Query, BackgroundTasks, Request
 from typing import List, Dict, Any, Optional
 from ..services.livekit_service import livekit_service
 from ..models.user import User
@@ -8,8 +8,7 @@ from ..models.chat import Chat, Message
 from ..models.voice_room import VoiceRoom
 from ..models.admin import AdminLog, PlatformSettings
 from ..models.notification import Notification
-from ..core.security import get_current_user
-from ..utils.auth import get_password_hash, verify_password, create_access_token
+from ..core.security import get_current_user, get_current_admin, verify_password, create_access_token, decode_access_token
 from ..utils.email import SMTP_LOGIN, SMTP_PASSWORD, SMTP_SERVER, SMTP_PORT, EMAIL_FROM
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
@@ -18,10 +17,15 @@ import json
 import asyncio
 from bson import ObjectId
 import smtplib
+from jose import JWTError
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from ..websocket.signaling import disconnect_user
+from ..core.rate_limiter import limiter
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 class AdminLoginRequest(BaseModel):
     email: EmailStr
@@ -44,11 +48,12 @@ class SettingsUpdate(BaseModel):
     image_uploads_enabled: Optional[bool] = None
     maintenance_mode: Optional[bool] = None
 
+class ReportResolutionRequest(BaseModel):
+    action: str
+
 # Helper to check if user is admin
 async def require_admin(current_user: User = Depends(get_current_user)):
-    if current_user.email != "zenvora@gmail.com":
-        raise HTTPException(status_code=403, detail="Unauthorized access to admin terminal")
-    if current_user.role not in ["admin", "super_admin"]:
+    if not current_user.is_admin and current_user.role not in ["admin", "super_admin"]:
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
 
@@ -69,50 +74,40 @@ async def send_broadcast_emails(title: str, message_text: str):
                 msg['Subject'] = title
                 msg.attach(MIMEText(message_text, 'plain'))
                 server.send_message(msg)
-    except Exception as e:
-        print(f"Broadcast Email Error: {e}")
+    except Exception:
+        logger.error("Broadcast email delivery failed.")
 
 @router.post("/login")
-async def admin_login(data: AdminLoginRequest):
-    # Strictly enforce the master admin account
-    admin_email = "zenvora@gmail.com"
-    admin_password = "qwertyuiop"
-    
-    if data.email == admin_email and data.password == admin_password:
-        # Check if user exists in DB, if not seed_admin should have created it
-        user = await User.find_one({"email": admin_email})
-        if not user:
-            # Fallback to creating it if somehow missing
-            user = User(
-                real_name="Master Admin",
-                email=admin_email,
-                anonymous_username="ZenvoraMaster",
-                password_hash=get_password_hash(admin_password),
-                age=99,
-                country="Global",
-                role="super_admin",
-                is_admin=True,
-                is_active=True
-            )
-            await user.insert()
-
-        access_token = create_access_token(data={"sub": admin_email, "role": "super_admin"})
+@limiter.limit("5/minute")
+async def admin_login(request: Request, data: AdminLoginRequest):
+    user = await User.find_one({"email": str(data.email).strip().lower()})
+    if (
+        user
+        and user.is_active
+        and not user.is_banned
+        and (user.is_admin or user.role in ["admin", "super_admin"])
+        and verify_password(data.password, user.password_hash)
+    ):
+        access_token = create_access_token(data={
+            "sub": user.email,
+            "role": user.role,
+            "ver": getattr(user, "token_version", 0),
+        })
         return {
-            "access_token": access_token, 
-            "token_type": "bearer", 
-            "role": "super_admin",
+            "access_token": access_token,
+            "token_type": "bearer",
+            "role": user.role,
             "user": {
                 "email": user.email,
                 "anonymous_username": user.anonymous_username,
-                "is_admin": True,
-                "role": "super_admin"
-            }
+                "is_admin": user.is_admin,
+                "role": user.role,
+            },
         }
 
-    # Deny all other accounts from using admin login
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, 
-        detail="Access Denied: Only authorized Zenvora administrators can enter this terminal."
+        detail="Invalid administrator credentials."
     )
 
 @router.get("/stats")
@@ -157,8 +152,10 @@ async def ban_user(user_id: str, data: UserBanRequest, admin: User = Depends(req
     user = await User.get(user_id)
     if not user: raise HTTPException(status_code=404, detail="User not found")
     user.is_banned = True
+    user.token_version = getattr(user, "token_version", 0) + 1
     user.ban_reason = data.reason
     await user.save()
+    await disconnect_user(user.anonymous_username)
     await AdminLog(admin_email=admin.email, action="ban_user", target=user.anonymous_username, details={"reason": data.reason}).insert()
     return {"message": "User banned"}
 
@@ -168,6 +165,7 @@ async def shadow_ban_user(user_id: str, admin: User = Depends(require_admin)):
     if not user: raise HTTPException(status_code=404, detail="User not found")
     user.shadow_banned = True
     await user.save()
+    await disconnect_user(user.anonymous_username)
     await AdminLog(admin_email=admin.email, action="shadow_ban", target=user.anonymous_username).insert()
     return {"message": "User shadow banned"}
 
@@ -188,20 +186,64 @@ async def list_active_rooms(admin: User = Depends(require_admin)):
 async def end_room(room_id: str, admin: User = Depends(require_admin)):
     room = await VoiceRoom.get(room_id)
     if not room: raise HTTPException(status_code=404, detail="Room not found")
-    room.is_active = False
-    await room.save()
-    
     # Optional: Force LiveKit room closure
     try:
         await livekit_service.end_room(room_id)
-    except:
-        pass
-        
+    except Exception:
+        logger.error("LiveKit room termination failed.")
+        raise HTTPException(status_code=502, detail="Could not terminate the active media room")
+
+    room.is_active = False
+    await room.save()
     return {"message": "Room terminated"}
 
 @router.get("/posts")
 async def list_posts(admin: User = Depends(require_admin)):
     return await Post.find_all().sort(-Post.created_at).limit(100).to_list()
+
+@router.get("/reports")
+async def list_reports(admin: User = Depends(require_admin)):
+    reports = await Report.find_all().sort(-Report.created_at).limit(100).to_list()
+    return [{
+        "id": str(report.id),
+        "reported_id": report.reported_id,
+        "reporter_id": report.reporter_id,
+        "reason": report.reason,
+        "details": report.details,
+        "target_type": report.target_type,
+        "target_id": report.target_id,
+        "status": report.status,
+        "severity": "LOW",
+        "timestamp": report.created_at.isoformat(),
+    } for report in reports]
+
+@router.post("/reports/{report_id}/resolve")
+async def resolve_report(
+    report_id: str,
+    body: ReportResolutionRequest,
+    admin: User = Depends(require_admin),
+):
+    if body.action not in {"dismiss", "strike"}:
+        raise HTTPException(status_code=400, detail="Invalid report action")
+    report = await Report.get(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.status != "pending":
+        raise HTTPException(status_code=409, detail="Report has already been reviewed")
+
+    report.status = "resolved"
+    report.resolution = body.action
+    report.reviewed_by = admin.email
+    report.reviewed_at = datetime.utcnow()
+    await report.save()
+
+    if body.action == "strike":
+        target = await User.find_one({"anonymous_username": report.reported_id})
+        if target:
+            target.trust_score = max(0, target.trust_score - 5)
+            await target.save()
+
+    return {"success": True, "status": report.status}
 
 @router.get("/chats")
 async def list_reported_chats(admin: User = Depends(require_admin)):
@@ -273,6 +315,26 @@ async def get_analytics(admin: User = Depends(require_admin)):
 
 @router.websocket("/ws/dashboard")
 async def dashboard_ws(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=1008)
+        return
+    try:
+        payload = decode_access_token(token)
+        user = await User.find_one({"email": payload.get("sub")})
+    except JWTError:
+        user = None
+        payload = {}
+    if (
+        not user
+        or not user.is_active
+        or user.is_banned
+        or (not user.is_admin and user.role not in ["admin", "super_admin"])
+        or payload.get("ver", 0) != getattr(user, "token_version", 0)
+    ):
+        await websocket.close(code=1008)
+        return
+
     await websocket.accept()
     try:
         while True:
@@ -281,5 +343,5 @@ async def dashboard_ws(websocket: WebSocket):
             total_users = await User.count()
             await websocket.send_json({"active_now": active_now, "total_users": total_users, "timestamp": now.isoformat()})
             await asyncio.sleep(5)
-    except:
-        pass
+    except WebSocketDisconnect:
+        return

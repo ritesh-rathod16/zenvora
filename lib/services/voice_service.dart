@@ -53,8 +53,8 @@ class VoiceService with ChangeNotifier {
       _isConnected = true;
       _updateParticipants();
       notifyListeners();
-    } catch (e) {
-      debugPrint("Failed to connect to LiveKit: $e");
+    } catch (_) {
+      debugPrint("LiveKit room connection failed.");
     }
   }
 

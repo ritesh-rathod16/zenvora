@@ -61,7 +61,19 @@ class AuthService {
   }
 
   Future<void> logout() async {
+    final token = await _storage.read(key: 'token');
+    if (token != null) {
+      try {
+        await http.post(
+          Uri.parse('${ApiConstants.baseUrl}/auth/logout'),
+          headers: {'Authorization': 'Bearer $token'},
+        ).timeout(const Duration(seconds: 5));
+      } catch (_) {
+        // Local logout must still complete if the server is unreachable.
+      }
+    }
     await _storage.delete(key: 'token');
+    await _storage.delete(key: 'user');
   }
 
   Future<String?> getToken() async {

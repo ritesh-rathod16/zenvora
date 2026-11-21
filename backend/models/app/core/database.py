@@ -20,6 +20,7 @@ from ..models.ghost import GhostIdentity
 from ..models.swipe import Swipe
 from ..models.match import Match
 from ..models.match_queue import MatchQueue
+from ..models.vibe import Vibe, UserVibe
 from ..models.comment import Comment
 from ..models.reel import Reel
 from ..models.livestream import LiveStream
@@ -38,7 +39,7 @@ DOCUMENT_MODELS = [
     PlatformSettings, Story, CallSession,
     GhostIdentity, Follow, FollowRequest,
     Swipe, Match, MatchQueue, Comment, Reel, LiveStream,
-    UserNote, InteractionEvent, UserInterestProfile
+    UserNote, InteractionEvent, UserInterestProfile, Vibe, UserVibe
 ]
 
 async def init_db() -> AsyncIOMotorDatabase:
@@ -91,7 +92,7 @@ async def init_db() -> AsyncIOMotorDatabase:
 
             return db
         except Exception as e:
-            logger.error(f"MongoDB Atlas connection attempt {attempt} failed: {e}")
+            logger.error(f"MongoDB connection attempt {attempt} failed.")
             if attempt == max_retries:
                 raise
             await asyncio.sleep(retry_delay)
@@ -116,8 +117,8 @@ async def health_check() -> dict:
     try:
         await db.command('ping')
         return {"status": "healthy", "database": os.getenv("DATABASE_NAME", "zenvora")}
-    except Exception as e:
-        return {"status": "unhealthy", "error": str(e)}
+    except Exception:
+        return {"status": "unhealthy", "error": "Database unavailable"}
 
 def get_database() -> Optional[AsyncIOMotorDatabase]:
     """Returns the current active database instance."""

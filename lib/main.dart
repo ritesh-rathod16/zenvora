@@ -9,6 +9,7 @@ import 'package:zenvora/features/auth/register/register_screen.dart';
 import 'package:zenvora/features/auth/verification/otp_screen.dart';
 import 'package:zenvora/features/home/home_screen.dart';
 import 'package:zenvora/features/random_chat/matchmaking_screen.dart';
+import 'package:zenvora/features/random_chat/vibe_matching_screen.dart';
 import 'package:zenvora/features/random_chat/video_chat_screen.dart';
 import 'package:zenvora/features/admin/admin_dashboard_screen.dart';
 import 'package:zenvora/features/admin/admin_users_screen.dart';
@@ -59,6 +60,7 @@ final _router = GoRouter(
     GoRoute(path: '/verify-otp', builder: (context, state) => OtpScreen(email: state.extra as String)),
     GoRoute(path: '/home', builder: (context, state) => const HomeScreen()),
     GoRoute(path: '/matchmaking', builder: (context, state) => const MatchmakingScreen()),
+    GoRoute(path: '/vibe-matching', builder: (context, state) => const VibeMatchingScreen()),
     GoRoute(path: '/video-chat', builder: (context, state) => const VideoChatScreen()),
     GoRoute(path: '/rooms', builder: (context, state) => const VoiceRoomsScreen()),
     

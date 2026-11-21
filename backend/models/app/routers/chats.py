@@ -43,6 +43,36 @@ def _clean_photo(url: Optional[str]) -> Optional[str]:
         return None
     return url
 
+async def _get_authorized_chat(chat_id: str, current_user: User) -> Chat:
+    chat = await Chat.get(chat_id)
+    if not chat or current_user.anonymous_username not in chat.participants:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    username = current_user.anonymous_username
+    participants = await User.find({
+        "anonymous_username": {"$in": chat.participants}
+    }).to_list()
+    participant_map = {user.anonymous_username: user for user in participants}
+    if chat.is_group:
+        for index, first in enumerate(participants):
+            for second in participants[index + 1:]:
+                if (
+                    second.anonymous_username in (first.blocked_users or [])
+                    or first.anonymous_username in (second.blocked_users or [])
+                ):
+                    raise HTTPException(status_code=403, detail="Interaction blocked")
+    else:
+        for participant in chat.participants:
+            if participant == username:
+                continue
+            other = participant_map.get(participant)
+            if other and (
+                participant in (current_user.blocked_users or [])
+                or username in (other.blocked_users or [])
+            ):
+                raise HTTPException(status_code=403, detail="Interaction blocked")
+    return chat
+
 async def _enrich_message(msg: Message, current_username: str) -> Dict[str, Any]:
     return {
         "id": str(msg.id),
@@ -90,6 +120,11 @@ async def get_my_chats(current_user: User = Depends(get_current_user)):
         other_user = other_usernames[0] if other_usernames else me
 
         u = await User.find_one({"anonymous_username": other_user})
+        if u and (
+            other_user in (current_user.blocked_users or [])
+            or me in (u.blocked_users or [])
+        ):
+            continue
         other_photo = _clean_photo(u.profile_photo_url or u.avatar_url) if u else None
 
         result.append({
@@ -147,9 +182,7 @@ async def start_chat(target_username: str, current_user: User = Depends(get_curr
 
 @router.get("/{chat_id}/details")
 async def get_chat_details(chat_id: str, current_user: User = Depends(get_current_user)):
-    chat = await Chat.get(chat_id)
-    if not chat or current_user.anonymous_username not in chat.participants:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    chat = await _get_authorized_chat(chat_id, current_user)
 
     me = current_user.anonymous_username
     other_usernames = [p for p in chat.participants if p != me]
@@ -170,9 +203,7 @@ async def get_chat_details(chat_id: str, current_user: User = Depends(get_curren
 
 @router.patch("/{chat_id}/auto-delete")
 async def set_chat_auto_delete_mode(chat_id: str, body: AutoDeleteUpdate, current_user: User = Depends(get_current_user)):
-    chat = await Chat.get(chat_id)
-    if not chat or current_user.anonymous_username not in chat.participants:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    chat = await _get_authorized_chat(chat_id, current_user)
 
     valid_modes = ["immediately_delete", "delete_24h", "never_delete"]
     if body.auto_delete_mode not in valid_modes:
@@ -209,9 +240,7 @@ async def set_chat_auto_delete_mode(chat_id: str, body: AutoDeleteUpdate, curren
 
 @router.patch("/{chat_id}/theme")
 async def set_chat_theme(chat_id: str, body: ChatThemeUpdate, current_user: User = Depends(get_current_user)):
-    chat = await Chat.get(chat_id)
-    if not chat or current_user.anonymous_username not in chat.participants:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    chat = await _get_authorized_chat(chat_id, current_user)
 
     chat.custom_theme = body.custom_theme
     await chat.save()
@@ -219,9 +248,7 @@ async def set_chat_theme(chat_id: str, body: ChatThemeUpdate, current_user: User
 
 @router.post("/{chat_id}/mute")
 async def toggle_mute_chat(chat_id: str, current_user: User = Depends(get_current_user)):
-    chat = await Chat.get(chat_id)
-    if not chat or current_user.anonymous_username not in chat.participants:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    chat = await _get_authorized_chat(chat_id, current_user)
 
     me = current_user.anonymous_username
     if me in chat.muted_by:
@@ -236,9 +263,7 @@ async def toggle_mute_chat(chat_id: str, current_user: User = Depends(get_curren
 
 @router.get("/{chat_id}/messages")
 async def get_messages(chat_id: str, current_user: User = Depends(get_current_user)):
-    chat = await Chat.get(chat_id)
-    if not chat or current_user.anonymous_username not in chat.participants:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    chat = await _get_authorized_chat(chat_id, current_user)
 
     me = current_user.anonymous_username
     now = datetime.now(timezone.utc)
@@ -264,6 +289,7 @@ async def get_messages(chat_id: str, current_user: User = Depends(get_current_us
 
 @router.post("/{chat_id}/messages/{message_id}/view")
 async def mark_message_viewed(chat_id: str, message_id: str, current_user: User = Depends(get_current_user)):
+    await _get_authorized_chat(chat_id, current_user)
     msg = await Message.get(message_id)
     if not msg or msg.chat_id != chat_id:
         raise HTTPException(status_code=404, detail="Message not found")
@@ -279,9 +305,7 @@ async def mark_message_viewed(chat_id: str, message_id: str, current_user: User 
 
 @router.post("/{chat_id}/send")
 async def send_message(chat_id: str, data: MessageCreate, current_user: User = Depends(get_current_user)):
-    chat = await Chat.get(chat_id)
-    if not chat or current_user.anonymous_username not in chat.participants:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    chat = await _get_authorized_chat(chat_id, current_user)
 
     me = current_user.anonymous_username
     now = datetime.now(timezone.utc)
@@ -323,9 +347,7 @@ async def send_message(chat_id: str, data: MessageCreate, current_user: User = D
 
 @router.post("/{chat_id}/upload-media")
 async def upload_chat_media(chat_id: str, file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
-    chat = await Chat.get(chat_id)
-    if not chat or current_user.anonymous_username not in chat.participants:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    chat = await _get_authorized_chat(chat_id, current_user)
 
     content = await file.read()
     from ..core.database import db
@@ -363,6 +385,7 @@ async def upload_chat_media(chat_id: str, file: UploadFile = File(...), current_
 
 @router.post("/{chat_id}/messages/{message_id}/react")
 async def react_to_message(chat_id: str, message_id: str, body: ReactionRequest, current_user: User = Depends(get_current_user)):
+    await _get_authorized_chat(chat_id, current_user)
     msg = await Message.get(message_id)
     if not msg or msg.chat_id != chat_id:
         raise HTTPException(status_code=404, detail="Message not found")
@@ -382,6 +405,7 @@ async def react_to_message(chat_id: str, message_id: str, body: ReactionRequest,
 
 @router.delete("/{chat_id}/messages/{message_id}")
 async def delete_own_message(chat_id: str, message_id: str, current_user: User = Depends(get_current_user)):
+    await _get_authorized_chat(chat_id, current_user)
     msg = await Message.get(message_id)
     if not msg or msg.chat_id != chat_id:
         raise HTTPException(status_code=404, detail="Message not found")
@@ -398,9 +422,7 @@ async def delete_own_message(chat_id: str, message_id: str, current_user: User =
 
 @router.delete("/{chat_id}")
 async def delete_chat(chat_id: str, current_user: User = Depends(get_current_user)):
-    chat = await Chat.get(chat_id)
-    if not chat or current_user.anonymous_username not in chat.participants:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    chat = await _get_authorized_chat(chat_id, current_user)
 
     await Message.find(Message.chat_id == chat_id).delete()
     await chat.delete()
@@ -415,6 +437,16 @@ class CreateGroupRequest(BaseModel):
 async def create_group_chat(body: CreateGroupRequest, current_user: User = Depends(get_current_user)):
     me = current_user.anonymous_username
     members = list(set(body.participants + [me]))
+    users = await User.find({"anonymous_username": {"$in": members}}).to_list()
+    if len(users) != len(members):
+        raise HTTPException(status_code=404, detail="Group participant not found")
+    for index, first in enumerate(users):
+        for second in users[index + 1:]:
+            if (
+                second.anonymous_username in (first.blocked_users or [])
+                or first.anonymous_username in (second.blocked_users or [])
+            ):
+                raise HTTPException(status_code=403, detail="Cannot add blocked users to a group")
 
     chat = Chat(
         participants=members,
@@ -438,9 +470,7 @@ async def create_group_chat(body: CreateGroupRequest, current_user: User = Depen
 
 @router.post("/{chat_id}/pin")
 async def toggle_pin_chat(chat_id: str, current_user: User = Depends(get_current_user)):
-    chat = await Chat.get(chat_id)
-    if not chat or current_user.anonymous_username not in chat.participants:
-        raise HTTPException(status_code=404, detail="Chat not found")
+    chat = await _get_authorized_chat(chat_id, current_user)
 
     me = current_user.anonymous_username
     if me in chat.pinned_by:
@@ -458,9 +488,7 @@ class ChatCategoryUpdate(BaseModel):
 
 @router.patch("/{chat_id}/category")
 async def update_chat_category(chat_id: str, body: ChatCategoryUpdate, current_user: User = Depends(get_current_user)):
-    chat = await Chat.get(chat_id)
-    if not chat or current_user.anonymous_username not in chat.participants:
-        raise HTTPException(status_code=404, detail="Chat not found")
+    chat = await _get_authorized_chat(chat_id, current_user)
     me = current_user.anonymous_username
     if chat.category_by_user is None:
         chat.category_by_user = {}

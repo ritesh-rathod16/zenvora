@@ -104,11 +104,21 @@ class _ChatInfoScreenState extends State<ChatInfoScreen> {
 
     if (confirm == true) {
       try {
-        await _apiService.post('/users/block/${widget.otherUser}', {});
-        if (mounted) {
+        final response = await _apiService.post('/users/block/${widget.otherUser}', {});
+        if (mounted && response.statusCode >= 200 && response.statusCode < 300) {
           Navigator.pop(context, "blocked");
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Could not block this user")),
+          );
         }
-      } catch (_) {}
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Could not block this user")),
+          );
+        }
+      }
     }
   }
 

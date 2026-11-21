@@ -23,8 +23,8 @@ class _SplashScreenState extends State<SplashScreen> {
 
     try {
       token = await _storage.read(key: 'token');
-    } catch (e) {
-      debugPrint("SecureStorage Error: $e");
+    } catch (_) {
+      debugPrint("Secure credential storage access failed.");
       await _storage.deleteAll();
       token = null;
     }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../core/services/auth_service.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_users_screen.dart';
 import 'admin_broadcast_screen.dart';
@@ -36,7 +37,7 @@ class _AdminMainScreenState extends State<AdminMainScreen> {
     final userJson = await storage.read(key: 'user');
     if (userJson != null) {
       final user = jsonDecode(userJson);
-      if (user['email'] == 'zenvora@gmail.com' && (user['role'] == 'super_admin' || user['is_admin'] == true)) {
+      if (user['role'] == 'admin' || user['role'] == 'super_admin' || user['is_admin'] == true) {
         setState(() {
           _isAuthorized = true;
           _checkingAuth = false;
@@ -285,9 +286,7 @@ class _AdminMainScreenState extends State<AdminMainScreen> {
       padding: const EdgeInsets.all(24.0),
       child: ElevatedButton.icon(
         onPressed: () async {
-          const storage = FlutterSecureStorage();
-          await storage.delete(key: 'token');
-          await storage.delete(key: 'user');
+          await AuthService().logout();
           if (mounted) context.go('/login');
         },
         icon: const Icon(Icons.logout_rounded, size: 18),

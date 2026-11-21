@@ -4,6 +4,8 @@ from ..models.user import User
 from ..models.chat import Chat, Message
 from ..models.notification import Notification
 from ..core.security import get_current_user
+from ..core.security import users_blocked
+from ..core.rate_limiter import limiter
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket
@@ -20,6 +22,11 @@ class CommentRequest(BaseModel):
 
 class ShareReelRequest(BaseModel):
     recipients: List[str] = Field(..., min_items=1)
+
+async def _ensure_reel_access(reel: Reel, current_user: User):
+    author = await User.find_one({"anonymous_username": reel.author_id})
+    if not author or users_blocked(current_user, author):
+        raise HTTPException(status_code=404, detail="Reel not found")
 
 def _clean_photo(url: Optional[str]) -> Optional[str]:
     if not url or "dicebear.com" in url:
@@ -75,9 +82,9 @@ async def upload_reel(
         )
         await new_reel.insert()
         return await _enrich_reel(new_reel, current_user.anonymous_username)
-    except Exception as e:
-        logger.error(f"Reel upload error: {e}")
-        raise HTTPException(status_code=400, detail=f"Failed to upload reel: {e}")
+    except Exception:
+        logger.error("Reel upload failed.")
+        raise HTTPException(status_code=400, detail="Failed to upload reel")
 
 @router.get("/feed")
 async def get_reels_feed(current_user: Optional[User] = Depends(get_current_user)):
@@ -90,6 +97,7 @@ async def toggle_like_reel(reel_id: str, current_user: User = Depends(get_curren
     reel = await Reel.get(reel_id)
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found")
+    await _ensure_reel_access(reel, current_user)
 
     uname = current_user.anonymous_username
     liked = False
@@ -118,6 +126,7 @@ async def add_reel_comment(reel_id: str, body: CommentRequest, current_user: Use
     reel = await Reel.get(reel_id)
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found")
+    await _ensure_reel_access(reel, current_user)
 
     uname = current_user.anonymous_username
     comment_entry = {
@@ -146,6 +155,7 @@ async def toggle_repost_reel(reel_id: str, current_user: User = Depends(get_curr
     reel = await Reel.get(reel_id)
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found")
+    await _ensure_reel_access(reel, current_user)
 
     uname = current_user.anonymous_username
     reposted = False
@@ -174,6 +184,7 @@ async def share_reel(reel_id: str, body: ShareReelRequest, current_user: User = 
     reel = await Reel.get(reel_id)
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found")
+    await _ensure_reel_access(reel, current_user)
 
     sender = current_user.anonymous_username
     sent_count = 0
@@ -181,6 +192,11 @@ async def share_reel(reel_id: str, body: ShareReelRequest, current_user: User = 
     for recipient in body.recipients:
         if recipient == sender:
             continue
+        target = await User.find_one({"anonymous_username": recipient})
+        if not target:
+            raise HTTPException(status_code=404, detail="Recipient not found")
+        if users_blocked(current_user, target):
+            raise HTTPException(status_code=403, detail="Interaction blocked")
         chat = await Chat.find_one({"participants": {"$all": [sender, recipient], "$size": 2}})
         if not chat:
             chat = Chat(participants=[sender, recipient], last_message=f"Shared a reel by @{reel.author_id}")
@@ -213,11 +229,15 @@ async def delete_reel(reel_id: str, current_user: User = Depends(get_current_use
 
     from ..core.database import db
     bucket = AsyncIOMotorGridFSBucket(db)
-    try:
+    if reel.video_url.startswith("/media/reels/"):
         file_id = reel.video_url.split("/")[-1]
-        await bucket.delete(ObjectId(file_id))
-    except Exception:
-        pass
+        if not ObjectId.is_valid(file_id):
+            raise HTTPException(status_code=500, detail="Reel media reference is invalid")
+        try:
+            await bucket.delete(ObjectId(file_id))
+        except Exception:
+            logger.error("Reel media deletion failed.")
+            raise HTTPException(status_code=503, detail="Reel media could not be deleted")
 
     await reel.delete()
     return {"success": True, "message": "Reel deleted"}
@@ -246,12 +266,11 @@ async def get_saved_reels(current_user: User = Depends(get_current_user)):
     saved_ids = current_user.saved_reels
     reels = []
     for rid in saved_ids:
-        try:
-            r = await Reel.get(ObjectId(rid))
-            if r and not r.is_archived:
-                reels.append(await _enrich_reel(r, current_user.anonymous_username))
-        except Exception:
-            pass
+        if not ObjectId.is_valid(rid):
+            continue
+        r = await Reel.get(ObjectId(rid))
+        if r and not r.is_archived:
+            reels.append(await _enrich_reel(r, current_user.anonymous_username))
     return reels
 
 class EditReelRequest(BaseModel):
@@ -261,8 +280,8 @@ class FeedbackRequest(BaseModel):
     feedback_type: str
 
 class ReportReelRequest(BaseModel):
-    reason: str
-    details: Optional[str] = ""
+    reason: str = Field(..., min_length=3, max_length=500)
+    details: Optional[str] = Field("", max_length=2000)
 
 @router.patch("/{reel_id}")
 async def edit_reel(reel_id: str, body: EditReelRequest, current_user: User = Depends(get_current_user)):
@@ -306,14 +325,35 @@ async def reel_feedback(reel_id: str, body: FeedbackRequest, current_user: User 
     return {"success": True, "message": f"Recorded feedback: {body.feedback_type}"}
 
 @router.post("/{reel_id}/report")
-async def report_reel(reel_id: str, body: ReportReelRequest, current_user: User = Depends(get_current_user)):
+@limiter.limit("10/hour")
+async def report_reel(
+    request: Request,
+    reel_id: str,
+    body: ReportReelRequest,
+    current_user: User = Depends(get_current_user),
+):
     from ..models.report import Report
+    reel = await Reel.get(reel_id)
+    if not reel:
+        raise HTTPException(status_code=404, detail="Reel not found")
+    if reel.author_id == current_user.anonymous_username:
+        raise HTTPException(status_code=400, detail="Cannot report your own reel")
+    duplicate = await Report.find_one({
+        "reporter_id": current_user.anonymous_username,
+        "reported_id": reel.author_id,
+        "content_id": reel_id,
+        "status": "pending",
+    })
+    if duplicate:
+        return {"success": True, "message": "Reel reported successfully"}
     report = Report(
         reporter_id=current_user.anonymous_username,
+        reported_id=reel.author_id,
         target_type="reel",
         target_id=reel_id,
+        content_id=reel_id,
         reason=body.reason,
-        details=body.details or ""
+        details=body.details or "",
     )
     await report.insert()
     return {"success": True, "message": "Reel reported successfully"}

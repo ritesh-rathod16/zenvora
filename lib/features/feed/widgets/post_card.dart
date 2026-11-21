@@ -83,8 +83,8 @@ class _PostCardState extends State<PostCard> {
           });
         }
       }
-    } catch (e) {
-      debugPrint("Like error: $e");
+    } catch (_) {
+      debugPrint("Post like request failed.");
     }
   }
 
@@ -114,8 +114,8 @@ class _PostCardState extends State<PostCard> {
           );
         }
       }
-    } catch (e) {
-      debugPrint("Repost error: $e");
+    } catch (_) {
+      debugPrint("Post repost request failed.");
     }
   }
 
@@ -660,8 +660,8 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       if (res.statusCode == 200) {
         _loadComments();
       }
-    } catch (e) {
-      debugPrint("Submit comment error: $e");
+    } catch (_) {
+      debugPrint("Comment submission failed.");
     }
   }
 
@@ -674,8 +674,8 @@ class _CommentsSheetState extends State<_CommentsSheet> {
         });
         widget.onCommentCountChanged(_comments.length);
       }
-    } catch (e) {
-      debugPrint("Delete comment error: $e");
+    } catch (_) {
+      debugPrint("Comment deletion failed.");
     }
   }
 
@@ -961,8 +961,8 @@ class _ShareSheetState extends State<_ShareSheet> {
           ),
         );
       }
-    } catch (e) {
-      debugPrint("Share error: $e");
+    } catch (_) {
+      debugPrint("Post sharing failed.");
     }
   }
 

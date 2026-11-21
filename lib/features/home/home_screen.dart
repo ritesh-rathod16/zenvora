@@ -54,8 +54,8 @@ class _HomeScreenState extends State<HomeScreen> {
       } else {
         if (mounted) setState(() => _isLoadingRole = false);
       }
-    } catch (e) {
-      debugPrint("Check Role Error: $e");
+    } catch (_) {
+      debugPrint("Role check failed.");
       if (mounted) setState(() => _isLoadingRole = false);
     }
   }
@@ -113,6 +113,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: const Icon(Icons.videocam_rounded, color: Color(0xFF00F0FF)),
                   tooltip: "Omegle Video Chat",
                   onPressed: () => context.push('/matchmaking'),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.auto_awesome_rounded, color: Color(0xFFB8B3FF)),
+                  tooltip: "Vibe Matching",
+                  onPressed: () => context.push('/vibe-matching'),
                 ),
                 IconButton(
                   icon: const Icon(Icons.send_rounded, color: Colors.white),

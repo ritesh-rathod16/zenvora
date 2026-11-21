@@ -41,8 +41,8 @@ async def swipe_discovery(
     country: Optional[str] = Query(None),
     gender: Optional[str] = Query(None),
     language: Optional[str] = Query(None),
-    min_age: Optional[int] = Query(None),
-    max_age: Optional[int] = Query(None),
+    min_age: Optional[int] = Query(None, ge=13, le=120),
+    max_age: Optional[int] = Query(None, ge=13, le=120),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -57,6 +57,14 @@ async def swipe_discovery(
     - Recently skipped profiles (unless reset)
     """
     me = current_user.anonymous_username
+    if not current_user.age or current_user.age < 13:
+        raise HTTPException(status_code=403, detail="Account is not eligible for discovery")
+    if min_age is not None and max_age is not None and min_age > max_age:
+        raise HTTPException(status_code=400, detail="Minimum age cannot exceed maximum age")
+    min_age = max(min_age or 13, current_user.age_min or 13)
+    max_age = min(max_age or 120, current_user.age_max or 120)
+    if min_age > max_age:
+        raise HTTPException(status_code=400, detail="Requested age range conflicts with match preferences")
 
     # Fetch users already followed
     follows = await Follow.find({"follower_id": me}).to_list()
@@ -85,10 +93,12 @@ async def swipe_discovery(
     query = {
         "anonymous_username": {"$nin": list(excluded_usernames)},
         "blocked_users": {"$ne": me},
+        "is_active": True,
         "is_banned": False,
         "shadow_banned": False,
         "role": {"$nin": ["admin", "super_admin"]}
     }
+    query["age"] = {"$gte": 13, "$lte": 120}
 
     if interest and interest.strip():
         query["interests"] = interest.strip()
@@ -96,19 +106,19 @@ async def swipe_discovery(
     if country and country.strip():
         query["country"] = country.strip()
 
-    if gender and gender.strip() and gender.lower() != "everyone":
-        query["gender"] = gender.strip()
+    preference = (current_user.interested_in or "everyone").strip().lower()
+    requested_gender = (gender or "").strip().lower()
+    if preference != "everyone":
+        if requested_gender and requested_gender not in {"everyone", preference}:
+            return []
+        query["gender"] = preference
+    elif requested_gender and requested_gender != "everyone":
+        query["gender"] = requested_gender
 
     if language and language.strip():
         query["language"] = language.strip()
 
-    if min_age or max_age:
-        age_filter = {}
-        if min_age:
-            age_filter["$gte"] = min_age
-        if max_age:
-            age_filter["$lte"] = max_age
-        query["age"] = age_filter
+    query["age"] = {"$gte": min_age, "$lte": max_age}
 
     potential_pool = await User.find(query).limit(100).to_list()
 

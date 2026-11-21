@@ -42,8 +42,8 @@ async def run_migration():
     try:
         await mongo_client.admin.command('ping')
         logger.info("Successfully connected to MongoDB Atlas.")
-    except Exception as e:
-        logger.error(f"Cannot reach MongoDB Atlas: {e}")
+    except Exception:
+        logger.error("Cannot reach MongoDB Atlas.")
         return
 
     # Check if Supabase PostgreSQL URL is provided
@@ -61,8 +61,8 @@ async def run_migration():
     try:
         pg_conn = await asyncpg.connect(supabase_db_url, timeout=10)
         logger.info("Connected to Supabase PostgreSQL.")
-    except Exception as e:
-        logger.warning(f"Could not connect to Supabase PostgreSQL: {e}.")
+    except Exception:
+        logger.warning("Could not connect to Supabase PostgreSQL.")
         logger.info("Supabase instance may be offline or paused. Proceeding with migration report.")
         return
 

@@ -7,13 +7,16 @@ from ..core.security import get_current_user
 from ..core.rate_limiter import limiter
 from ..websocket.signaling import sio
 from pydantic import BaseModel
+from typing import Literal
 from datetime import datetime
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 class SwipeRequest(BaseModel):
     target_user_id: str # target username
-    action: str # "like" (swipe right), "pass" (swipe left), "super_like" (super swipe)
+    action: Literal["like", "pass", "super_like"]
 
 @router.post("")
 @limiter.limit("30/minute")
@@ -29,7 +32,7 @@ async def perform_swipe(request: Request, data: SwipeRequest, current_user: User
         raise HTTPException(status_code=404, detail="User not found")
 
     # Check blocks
-    if target_username in current_user.blocked_users or me in target_user.blocked_users:
+    if target_username in (current_user.blocked_users or []) or me in (target_user.blocked_users or []):
         raise HTTPException(status_code=403, detail="Interaction blocked")
 
     # Store or update swipe record
@@ -92,7 +95,7 @@ async def perform_swipe(request: Request, data: SwipeRequest, current_user: User
                         "message": notif.message
                     }, room=target_username)
                 except Exception:
-                    pass
+                    logger.warning("Follow notification delivery failed.")
 
             return {
                 "success": True,
@@ -133,7 +136,7 @@ async def perform_swipe(request: Request, data: SwipeRequest, current_user: User
                         "message": notif.message
                     }, room=target_username)
                 except Exception:
-                    pass
+                    logger.warning("Follow request notification delivery failed.")
 
                 return {
                     "success": True,

@@ -2,6 +2,9 @@ import os
 import openai
 from google.cloud import vision
 import io
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ModerationService:
     def __init__(self):
@@ -16,11 +19,9 @@ class ModerationService:
             response = self.openai_client.moderations.create(input=text)
             output = response.results[0]
             return not output.flagged
-        except Exception as e:
-            print(f"Text Moderation Error: {e}")
-            # Fallback to simple keyword check if API fails
-            banned = ["nude", "porn", "kill", "abuse"]
-            return not any(word in text.lower() for word in banned)
+        except Exception:
+            logger.warning("Text moderation provider failed.")
+            return False
 
     async def moderate_image(self, image_bytes: bytes) -> bool:
         """

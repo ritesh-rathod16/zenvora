@@ -10,14 +10,17 @@ from .routers import (
     auth, users, chats, posts, discovery, 
     voice_rooms, reports, media, admin, 
     icebreakers, social, stories, calls, ghost, swipe, reels,
-    communities, ai, creator, livestream, monetization, connect, notifications, recommendation, notes
+    communities, ai, creator, livestream, monetization, connect, notifications,
+    recommendation, notes, vibes
 )
-from .websocket.signaling import sio_app, sio, set_pairing
+from .websocket.signaling import sio_app, sio, set_pairing, pair_is_eligible
 from .services.matchmaking import matchmaker
 from .services.ghost_identity_service import ghost_service
 from .services.disappearing_messages_worker import disappearing_worker
+from .routers.vibes import seed_default_vibes
 from .models.user import User
 from .core.security import get_password_hash
+from .core.config import ADMIN_EMAIL, ADMIN_PASSWORD
 
 load_dotenv()
 
@@ -38,24 +41,26 @@ async def lifespan(app: FastAPI):
     try:
         await init_db() # MongoDB Atlas with Beanie ODM
         await seed_admin()
+        await seed_default_vibes()
 
         # Start High-Concurrency Matchmaking Worker
         try:
-            asyncio.create_task(matchmaker.run_adaptive_worker(sio, set_pairing))
+            asyncio.create_task(matchmaker.run_adaptive_worker(sio, set_pairing, pair_is_eligible))
             logger.info("Matchmaker worker initialized.")
-        except Exception as me:
-            logger.warning(f"Matchmaker worker startup issue: {me}")
+        except Exception:
+            logger.warning("Matchmaker worker startup failed.")
 
         # Start Disappearing Messages Cleanup Worker
         try:
             disappearing_worker.start()
             logger.info("Disappearing messages worker initialized.")
-        except Exception as de:
-            logger.warning(f"Disappearing messages worker startup issue: {de}")
+        except Exception:
+            logger.warning("Disappearing messages worker startup failed.")
 
         logger.info("Zenvora API: Ready on MongoDB Atlas.")
-    except Exception as e:
-        logger.error(f"Critical Startup Failure: {e}", exc_info=True)
+    except Exception:
+        logger.error("Critical startup failure.")
+        raise
 
     yield
 
@@ -83,31 +88,31 @@ app.add_middleware(
 )
 
 async def seed_admin():
-    """Ensure master admin exists with correct role."""
-    admin_email = os.getenv("ADMIN_EMAIL", "zenvora@gmail.com")
-    admin_pass = os.getenv("ADMIN_PASSWORD", "qwertyuiop")
+    """Create the configured initial admin without resetting existing credentials."""
+    admin_email = ADMIN_EMAIL
+    admin_pass = ADMIN_PASSWORD
+    if not admin_email or not admin_pass:
+        logger.info("Admin seeding skipped because ADMIN_EMAIL/ADMIN_PASSWORD are not configured.")
+        return
+
     admin = await User.find_one({"email": admin_email})
     if not admin:
         new_admin = User(
             real_name="Master Admin",
             email=admin_email,
             anonymous_username="ZenvoraMaster",
+            normalized_username="zenvoramaster",
             password_hash=get_password_hash(admin_pass),
             age=99,
             country="Global",
             role="super_admin",
             is_admin=True,
-            is_active=True
+            is_active=True,
         )
         await new_admin.insert()
         logger.info("Master admin user created.")
     else:
-        # Sync password and role to match requirements exactly
-        admin.password_hash = get_password_hash(admin_pass)
-        admin.role = "super_admin"
-        admin.is_admin = True
-        await admin.save()
-        logger.info("Admin role and password synchronized.")
+        logger.info("Configured admin account already exists; startup left its credentials and role unchanged.")
 
 @app.get("/")
 async def root():
@@ -152,5 +157,6 @@ app.include_router(connect, prefix="/connect", tags=["Zenvora Connect"])
 app.include_router(notifications, prefix="/notifications", tags=["Notifications & Activity"])
 app.include_router(recommendation, prefix="/recommendations", tags=["ZENVORA AI Recommendations"])
 app.include_router(notes, prefix="/notes", tags=["Instagram Notes"])
+app.include_router(vibes, prefix="/vibes", tags=["Vibe Matching"])
 
 app.mount("/socket.io", sio_app)

@@ -69,7 +69,29 @@ Authenticates user and returns JWT bearer token.
 
 ---
 
-## 3. Media & CDN
+## 3. Vibe Matching
+
+All user endpoints require `Authorization: Bearer <token>`.
+
+### `GET /vibes`
+Returns active backend-configured vibe categories and the caller's own active vibe, if any. Categories are seeded by the backend and remain editable by administrators.
+
+### `PUT /vibes/me`
+Sets an active vibe for two hours or clears it. `preferred_vibes` is an optional allow-list of other active vibe IDs; an empty list uses the configured compatibility rules.
+
+```json
+{
+  "vibe_id": "deep-conversations",
+  "preferred_vibes": ["late-night-talks", "want-to-talk"]
+}
+```
+
+To clear the active vibe, send `{"vibe_id": null, "preferred_vibes": []}`. The server applies age eligibility, including an adult-only rule for `flirting`, and cancels any waiting vibe queue entry when the selection changes.
+
+### `POST /vibes/catalog` and `PATCH /vibes/catalog/{vibe_id}`
+Administrator-only endpoints for adding categories and updating labels, compatibility, fallback groups, minimum ages, order, or active status. Existing category IDs are not renamed or deleted, so saved preferences remain valid.
+
+## 4. Media & CDN
 
 ### `GET /media/imagekit-auth`
 Generates HMAC-SHA1 client upload authentication parameters for direct ImageKit CDN uploads.
@@ -93,14 +115,15 @@ Serves story media from MongoDB GridFS fallback.
 
 ---
 
-## 4. Realtime Socket.IO Events
+## 5. Realtime Socket.IO Events
 
 Mounted at `/socket.io`.
 
 | Event (Client -> Server) | Payload | Description |
 | :--- | :--- | :--- |
-| `join_queue` | `{"interests": [...], "region": "US", "trust_score": 100}` | Enters user into MongoDB `match_queue` |
+| `join_queue` | `{"match_mode": "random"}` or `{"match_mode": "vibe"}` | Enters the authenticated user into the corresponding MongoDB `match_queue`; vibe details are read from the server-side active selection |
 | `leave_queue` | `{}` | Removes user from `match_queue` |
+| `queue_heartbeat` | `{}` | Renews the short presence lease for a waiting vibe search |
 | `offer` | `{"sdp": "...", "type": "offer"}` | WebRTC signaling offer |
 | `answer` | `{"sdp": "...", "type": "answer"}` | WebRTC signaling answer |
 | `ice_candidate` | `{"candidate": "..."}` | WebRTC ICE candidate exchange |
@@ -108,5 +131,6 @@ Mounted at `/socket.io`.
 
 | Event (Server -> Client) | Payload | Description |
 | :--- | :--- | :--- |
-| `match_found` | `{"partner_id": "...", "role": "caller|receiver"}` | Emitted when atomic match is finalized |
+| `match_found` | `{"partner_id": "...", "role": "caller|receiver", "match_mode": "random|vibe"}` | Emitted when atomic match is finalized |
+| `matchmaking_error` | `{"message": "..."}` | Reports an invalid or unavailable matchmaking request |
 | `partner_disconnected` | `{}` | Emitted when partner leaves or disconnects |

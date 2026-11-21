@@ -54,8 +54,8 @@ class _StorySectionState extends State<StorySection> {
       } else {
         if (mounted) setState(() => _isLoading = false);
       }
-    } catch (e) {
-      debugPrint("StorySection load error: $e");
+    } catch (_) {
+      debugPrint("Story feed loading failed.");
       if (mounted) setState(() => _isLoading = false);
     }
   }

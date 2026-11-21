@@ -18,9 +18,9 @@ class CallKitService {
       if (event == null) return;
       final evtString = event.event.toString();
       if (evtString.contains('actionCallAccept') || evtString.contains('ACTION_CALL_ACCEPT')) {
-        debugPrint("CallKit accepted: ${event.body}");
+        debugPrint("CallKit call accepted.");
       } else if (evtString.contains('actionCallDecline') || evtString.contains('ACTION_CALL_DECLINE')) {
-        debugPrint("CallKit declined: ${event.body}");
+        debugPrint("CallKit call declined.");
         FlutterCallkitIncoming.endAllCalls();
       }
     });

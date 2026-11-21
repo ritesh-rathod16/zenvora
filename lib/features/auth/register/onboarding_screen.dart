@@ -48,6 +48,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _audioPlayer = AudioPlayer();
   bool _isRecording = false;
   bool _isPlaying = false;
+  bool _isSubmitting = false;
 
   @override
   void dispose() {
@@ -84,10 +85,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       final response = await _apiService.uploadFile('/users/avatar', _profileImage!.path);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        setState(() => _avatarUrl = data['avatar_url']);
+        if (mounted) setState(() => _avatarUrl = data['avatar_url']);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Profile photo upload failed")),
+        );
       }
-    } catch (e) {
-      debugPrint("Avatar upload error: $e");
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Profile photo upload failed")),
+        );
+      }
     }
   }
 
@@ -105,16 +114,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         
         // Auto stop after 10 seconds
         Future.delayed(const Duration(seconds: 10), () {
-          if (_isRecording) _stopRecording();
+          if (mounted && _isRecording) _stopRecording();
         });
       }
-    } catch (e) {
-      debugPrint("Recording error: $e");
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Voice introduction recording failed")),
+        );
+      }
     }
   }
 
   Future<void> _stopRecording() async {
     final path = await _audioRecorder.stop();
+    if (!mounted) return;
     setState(() {
       _isRecording = false;
       _voiceIntroPath = path;
@@ -128,22 +142,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       final response = await _apiService.uploadFile('/users/voice-intro', _voiceIntroPath!);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        setState(() => _voiceIntroUrl = data['voice_intro_url']);
+        if (mounted) setState(() => _voiceIntroUrl = data['voice_intro_url']);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Voice introduction upload failed")),
+        );
       }
-    } catch (e) {
-      debugPrint("Voice upload error: $e");
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Voice introduction upload failed")),
+        );
+      }
     }
   }
 
   Future<void> _playPreview() async {
     if (_voiceIntroPath == null) return;
     setState(() => _isPlaying = true);
-    await _audioPlayer.setFilePath(_voiceIntroPath!);
-    await _audioPlayer.play();
-    setState(() => _isPlaying = false);
+    try {
+      await _audioPlayer.setFilePath(_voiceIntroPath!);
+      await _audioPlayer.play();
+    } finally {
+      if (mounted) setState(() => _isPlaying = false);
+    }
   }
 
   Future<void> _submitOnboarding() async {
+    if (_isSubmitting) return;
     if (_selectedInterests.length < 3) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select at least 3 interests")));
       return;
@@ -153,6 +179,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       return;
     }
 
+    setState(() => _isSubmitting = true);
     try {
       final response = await _apiService.post('/users/onboarding', {
         "gender": _gender,
@@ -168,9 +195,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
       if (response.statusCode == 200) {
         if (mounted) context.go('/home');
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Could not save your profile setup")),
+        );
       }
-    } catch (e) {
-      debugPrint("Onboarding submit error: $e");
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Could not save your profile setup")),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 

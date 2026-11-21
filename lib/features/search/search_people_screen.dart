@@ -68,8 +68,8 @@ class _SearchPeopleScreenState extends State<SearchPeopleScreen> {
           _userResults = jsonDecode(response.body);
         });
       }
-    } catch (e) {
-      debugPrint("Search Error: $e");
+    } catch (_) {
+      debugPrint("People search failed.");
     } finally {
       if (mounted) setState(() => _isSearching = false);
     }

@@ -66,8 +66,8 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> with TickerProviderSt
           await _voiceService.joinRoom(roomId, token, sfuUrl);
         }
       }
-    } catch (e) {
-      debugPrint("Error joining SFU room: $e");
+    } catch (_) {
+      debugPrint("Voice room connection failed.");
     }
   }
 
@@ -90,8 +90,8 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> with TickerProviderSt
         setState(() => _messages.add(msg));
       }
       _chatController.clear();
-    } catch (e) {
-      debugPrint("Send Chat Error: $e");
+    } catch (_) {
+      debugPrint("Voice room message send failed.");
     }
   }
 
@@ -102,8 +102,8 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> with TickerProviderSt
     try {
       _socketService.socket.emit('room_reaction', {'room_id': roomId, 'emoji': emoji});
       _showReactionOverlay(emoji);
-    } catch (e) {
-      debugPrint("Send Reaction Error: $e");
+    } catch (_) {
+      debugPrint("Voice room reaction send failed.");
     }
   }
 
@@ -137,8 +137,8 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> with TickerProviderSt
         _socketService.socket.emit('room_leave', {'room_id': roomId});
       }
       if (mounted) Navigator.pop(context);
-    } catch (e) {
-      debugPrint("Leave Room Error: $e");
+    } catch (_) {
+      debugPrint("Voice room disconnection failed.");
       if (mounted) Navigator.pop(context);
     }
   }
@@ -172,13 +172,13 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> with TickerProviderSt
 
       _socketService.socket.on('room_joined', (data) {
         if (mounted && data != null) {
-          debugPrint("Socket: User joined - ${data['username']}");
+          debugPrint("Voice room participant joined.");
         }
       });
 
       _socketService.socket.on('room_left', (data) {
         if (mounted && data != null) {
-          debugPrint("Socket: User left - ${data['user_id']}");
+          debugPrint("Voice room participant left.");
         }
       });
 
@@ -213,8 +213,8 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> with TickerProviderSt
         }
       });
 
-    } catch (e) {
-      debugPrint("Socket Listener Error: $e");
+    } catch (_) {
+      debugPrint("Voice room socket listener setup failed.");
     }
   }
 

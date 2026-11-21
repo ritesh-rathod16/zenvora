@@ -40,8 +40,8 @@ class SocialProvider with ChangeNotifier {
         _isInitialized = true;
         notifyListeners();
       }
-    } catch (e) {
-      debugPrint("SocialProvider init error: $e");
+    } catch (_) {
+      debugPrint("Social provider initialization failed.");
     }
   }
 

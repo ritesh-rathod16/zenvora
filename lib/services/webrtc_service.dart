@@ -45,8 +45,8 @@ class WebRTCService {
 
       await _createPeerConnectionAndTracks();
       _setupSocketSignaling();
-    } catch (e) {
-      debugPrint("WebRTC init error: $e");
+    } catch (_) {
+      debugPrint("WebRTC initialization failed.");
     }
   }
 
@@ -91,8 +91,8 @@ class WebRTCService {
         RTCSessionDescription answer = await _peerConnection!.createAnswer();
         await _peerConnection!.setLocalDescription(answer);
         socketService.sendAnswer({'sdp': answer.sdp, 'type': answer.type});
-      } catch (e) {
-        debugPrint("Error handling offer: $e");
+      } catch (_) {
+        debugPrint("WebRTC offer handling failed.");
       }
     };
 
@@ -102,8 +102,8 @@ class WebRTCService {
         await _peerConnection!.setRemoteDescription(
           RTCSessionDescription(data['sdp'], data['type']),
         );
-      } catch (e) {
-        debugPrint("Error handling answer: $e");
+      } catch (_) {
+        debugPrint("WebRTC answer handling failed.");
       }
     };
 
@@ -113,8 +113,8 @@ class WebRTCService {
         await _peerConnection!.addCandidate(
           RTCIceCandidate(data['candidate'], data['sdpMid'], data['sdpMLineIndex']),
         );
-      } catch (e) {
-        debugPrint("Error adding ice candidate: $e");
+      } catch (_) {
+        debugPrint("WebRTC ICE candidate handling failed.");
       }
     };
   }
@@ -123,8 +123,8 @@ class WebRTCService {
     try {
       await _peerConnection?.close();
       await _peerConnection?.dispose();
-    } catch (e) {
-      debugPrint("Error disposing peer connection: $e");
+    } catch (_) {
+      debugPrint("WebRTC peer connection disposal failed.");
     }
     _peerConnection = null;
     remoteStream = null;
@@ -139,8 +139,8 @@ class WebRTCService {
       RTCSessionDescription offer = await _peerConnection!.createOffer();
       await _peerConnection!.setLocalDescription(offer);
       socketService.sendOffer({'sdp': offer.sdp, 'type': offer.type});
-    } catch (e) {
-      debugPrint("Error creating offer: $e");
+    } catch (_) {
+      debugPrint("WebRTC offer creation failed.");
     }
   }
 
@@ -174,8 +174,8 @@ class WebRTCService {
       remoteStream?.dispose();
       _peerConnection?.close();
       _peerConnection?.dispose();
-    } catch (e) {
-      debugPrint("WebRTC dispose error: $e");
+    } catch (_) {
+      debugPrint("WebRTC disposal failed.");
     }
     localStream = null;
     remoteStream = null;

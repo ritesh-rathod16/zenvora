@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Query
 from ..models.user import User
-from ..models.social import Follow
+from ..models.social import Follow, FollowRequest
 from ..models.post import Post
-from ..core.security import get_current_user
+from ..core.security import get_current_user, get_optional_current_user
 from ..utils.auth import get_password_hash, verify_password
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -13,6 +13,7 @@ from PIL import Image
 from datetime import datetime, date
 import logging
 from ..core.database import get_database
+from ..websocket.signaling import disconnect_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ class UserProfileResponse(BaseModel):
     display_name: Optional[str] = None
     avatar_url: Optional[str] = None
     profile_photo_url: Optional[str] = None
+    voice_intro_url: Optional[str] = None
     bio: Optional[str] = None
     website: Optional[str] = None
     age: Optional[int] = None
@@ -68,6 +70,17 @@ class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str = Field(..., min_length=6)
 
+class OnboardingRequest(BaseModel):
+    gender: str = Field(..., min_length=1, max_length=40)
+    interested_in: str = Field(..., min_length=1, max_length=40)
+    age_min: int = Field(..., ge=13, le=120)
+    age_max: int = Field(..., ge=13, le=120)
+    avatar_url: str = Field(..., min_length=1, max_length=2048)
+    bio: str = Field("", max_length=500)
+    personality_type: str = Field(..., min_length=1, max_length=80)
+    interests: List[str] = Field(..., min_items=3, max_items=50)
+    voice_intro_url: Optional[str] = Field(None, max_length=2048)
+
 def normalize_username(raw: str) -> str:
     cleaned = raw.strip().lstrip('@').lower()
     return re.sub(r"[^\w]", "", cleaned)
@@ -107,8 +120,14 @@ async def check_username_availability(username: str):
     return {"available": True, "normalized_username": norm}
 
 @router.get("/search", response_model=List[UserSearchResponse])
-async def search_users(q: str = Query("", min_length=0)):
+async def search_users(
+    q: str = Query("", min_length=0),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     query = {"role": {"$nin": ["admin", "super_admin"]}}
+    if current_user:
+        query["anonymous_username"] = {"$nin": [current_user.anonymous_username, *current_user.blocked_users]}
+        query["blocked_users"] = {"$ne": current_user.anonymous_username}
     if q and q.strip():
         q_clean = q.strip().lstrip('@')
         query["$or"] = [
@@ -141,6 +160,7 @@ async def get_my_profile(current_user: User = Depends(get_current_user)):
         display_name=current_user.full_name or uname,
         avatar_url=photo,
         profile_photo_url=photo,
+        voice_intro_url=current_user.voice_intro_url,
         bio=current_user.bio or "",
         website=current_user.website or "",
         age=current_user.age,
@@ -181,8 +201,11 @@ async def edit_profile(body: EditProfileRequest, current_user: User = Depends(ge
     if body.website is not None:
         current_user.website = body.website.strip()
     if body.date_of_birth is not None:
+        age = calculate_age(body.date_of_birth)
+        if age is None or age < 13 or age > 120:
+            raise HTTPException(status_code=400, detail="A valid date of birth for an eligible user is required")
         current_user.date_of_birth = body.date_of_birth.strip()
-        current_user.age = calculate_age(body.date_of_birth)
+        current_user.age = age
     if body.gender is not None:
         current_user.gender = body.gender.strip()
     if body.country is not None:
@@ -199,11 +222,84 @@ async def edit_profile(body: EditProfileRequest, current_user: User = Depends(ge
     await current_user.save()
     return {"message": "Profile updated successfully", "user": current_user.dict()}
 
+@router.post("/onboarding")
+async def save_onboarding(body: OnboardingRequest, current_user: User = Depends(get_current_user)):
+    if body.age_min > body.age_max:
+        raise HTTPException(status_code=400, detail="Minimum age cannot exceed maximum age")
+    if not current_user.age or current_user.age < 13:
+        raise HTTPException(status_code=403, detail="Account is not eligible for discovery")
+    if not current_user.avatar_url or body.avatar_url != current_user.avatar_url:
+        raise HTTPException(status_code=400, detail="Upload a profile photo before completing setup")
+
+    interests = [interest.strip() for interest in body.interests if interest.strip()]
+    if len(interests) < 3 or len(set(interests)) != len(interests):
+        raise HTTPException(status_code=400, detail="Select at least three unique interests")
+
+    current_user.gender = body.gender.strip()
+    current_user.interested_in = body.interested_in.strip()
+    current_user.age_min = body.age_min
+    current_user.age_max = body.age_max
+    current_user.bio = body.bio.strip()
+    current_user.personality_type = body.personality_type.strip()
+    current_user.interests = interests
+    current_user.voice_intro_url = body.voice_intro_url
+    await current_user.save()
+    return {"message": "Onboarding saved successfully"}
+
+@router.post("/block/{username}")
+async def block_user(username: str, current_user: User = Depends(get_current_user)):
+    target_username = username.strip().lstrip("@")
+    if target_username == current_user.anonymous_username:
+        raise HTTPException(status_code=400, detail="Cannot block yourself")
+    target = await User.find_one({"anonymous_username": target_username})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if target_username not in current_user.blocked_users:
+        current_user.blocked_users.append(target_username)
+        await current_user.save()
+    await disconnect_user(target_username)
+
+    for follower_id, following_id in (
+        (current_user.anonymous_username, target_username),
+        (target_username, current_user.anonymous_username),
+    ):
+        follow = await Follow.find_one({"follower_id": follower_id, "following_id": following_id})
+        if follow:
+            await follow.delete()
+            follower = current_user if follower_id == current_user.anonymous_username else target
+            following = current_user if following_id == current_user.anonymous_username else target
+            follower.following_count = max(0, follower.following_count - 1)
+            following.followers_count = max(0, following.followers_count - 1)
+            await follower.save()
+            await following.save()
+
+    await FollowRequest.find({
+        "$or": [
+            {"from_user_id": current_user.anonymous_username, "to_user_id": target_username},
+            {"from_user_id": target_username, "to_user_id": current_user.anonymous_username},
+        ]
+    }).delete()
+    return {"success": True, "message": "User blocked"}
+
+@router.delete("/block/{username}")
+async def unblock_user(username: str, current_user: User = Depends(get_current_user)):
+    target_username = username.strip().lstrip("@")
+    if target_username in current_user.blocked_users:
+        current_user.blocked_users.remove(target_username)
+        await current_user.save()
+    return {"success": True, "message": "User unblocked"}
+
 @router.get("/{username}", response_model=UserProfileResponse)
 async def get_user_profile(username: str, current_user: Optional[User] = Depends(get_current_user)):
     clean_un = username.lstrip('@').strip()
     user = await User.find_one({"$or": [{"anonymous_username": clean_un}, {"normalized_username": clean_un.lower()}]})
     if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if current_user and (
+        clean_un in current_user.blocked_users
+        or current_user.anonymous_username in user.blocked_users
+    ):
         raise HTTPException(status_code=404, detail="User not found")
 
     uname = user.anonymous_username
@@ -245,6 +341,7 @@ async def get_user_profile(username: str, current_user: Optional[User] = Depends
         display_name=user.full_name or uname,
         avatar_url=photo,
         profile_photo_url=photo,
+        voice_intro_url=user.voice_intro_url,
         bio=user.bio or "",
         website=user.website or "",
         age=age_val,
@@ -266,6 +363,11 @@ async def get_user_profile(username: str, current_user: Optional[User] = Depends
 @router.get("/{username}/followers")
 async def get_user_followers(username: str, current_user: Optional[User] = Depends(get_current_user)):
     clean_un = username.lstrip('@').strip()
+    target = await User.find_one({"anonymous_username": clean_un})
+    if current_user and target and (
+        clean_un in current_user.blocked_users or current_user.anonymous_username in target.blocked_users
+    ):
+        raise HTTPException(status_code=404, detail="User not found")
     follows = await Follow.find({"following_id": clean_un}).to_list()
     result = []
     for f in follows:
@@ -282,6 +384,11 @@ async def get_user_followers(username: str, current_user: Optional[User] = Depen
 @router.get("/{username}/following")
 async def get_user_following(username: str, current_user: Optional[User] = Depends(get_current_user)):
     clean_un = username.lstrip('@').strip()
+    target = await User.find_one({"anonymous_username": clean_un})
+    if current_user and target and (
+        clean_un in current_user.blocked_users or current_user.anonymous_username in target.blocked_users
+    ):
+        raise HTTPException(status_code=404, detail="User not found")
     follows = await Follow.find({"follower_id": clean_un}).to_list()
     result = []
     for f in follows:
@@ -296,6 +403,7 @@ async def get_user_following(username: str, current_user: Optional[User] = Depen
     return result
 
 @router.post("/upload-profile-photo")
+@router.post("/avatar")
 async def upload_profile_photo(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     content = await file.read()
     if len(content) > 10 * 1024 * 1024:
@@ -307,8 +415,8 @@ async def upload_profile_photo(file: UploadFile = File(...), current_user: User 
         output = io.BytesIO()
         img.save(output, format="JPEG", quality=85)
         processed_bytes = output.getvalue()
-    except Exception as e:
-        logger.error(f"Failed to process uploaded image: {e}")
+    except Exception:
+        logger.error("Failed to process uploaded image.")
         raise HTTPException(status_code=400, detail="Invalid image file or unsupported format")
 
     db = get_database()
@@ -326,7 +434,35 @@ async def upload_profile_photo(file: UploadFile = File(...), current_user: User 
     current_user.profile_photo_url = url
     current_user.avatar_url = url
     await current_user.save()
-    return {"url": url, "profile_photo_url": url, "message": "Profile photo updated successfully"}
+    return {
+        "url": url,
+        "avatar_url": url,
+        "profile_photo_url": url,
+        "message": "Profile photo updated successfully",
+    }
+
+@router.post("/voice-intro")
+async def upload_voice_intro(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
+    if not (file.content_type or "").startswith("audio/"):
+        raise HTTPException(status_code=400, detail="Invalid audio file")
+    content = await file.read()
+    if not content or len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Audio file must be between 1 byte and 10MB")
+
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    bucket = AsyncIOMotorGridFSBucket(db)
+    file_id = await bucket.upload_from_stream(
+        f"voice_intro_{current_user.id}",
+        content,
+        metadata={"contentType": file.content_type, "userId": str(current_user.id)},
+    )
+    url = f"/media/voice-intro/{file_id}"
+    current_user.voice_intro_url = url
+    await current_user.save()
+    return {"voice_intro_url": url}
 
 @router.get("/me/settings")
 async def get_my_settings(current_user: User = Depends(get_current_user)):
@@ -350,3 +486,13 @@ async def update_my_settings(body: UpdateSettingsRequest, current_user: User = D
         current_user.theme_preference = body.theme_preference
     await current_user.save()
     return {"success": True, "message": "Settings updated"}
+
+@router.post("/me/change-password")
+async def change_password(body: ChangePasswordRequest, current_user: User = Depends(get_current_user)):
+    if not verify_password(body.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    current_user.password_hash = get_password_hash(body.new_password)
+    current_user.token_version = getattr(current_user, "token_version", 0) + 1
+    await current_user.save()
+    return {"success": True, "message": "Password changed successfully. Please log in again with your new password."}

@@ -63,8 +63,8 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       if (_profile != null) {
         await _fetchUserPosts();
       }
-    } catch (e) {
-      debugPrint("Error loading profile data: $e");
+    } catch (_) {
+      debugPrint("Profile data loading failed.");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -78,8 +78,8 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           _profile = jsonDecode(response.body);
         });
       }
-    } catch (e) {
-      debugPrint("Fetch Profile Error: $e");
+    } catch (_) {
+      debugPrint("Profile request failed.");
     }
   }
 
@@ -101,8 +101,8 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           _userReposts = jsonDecode(repostsRes.body);
         });
       }
-    } catch (e) {
-      debugPrint("Fetch User Posts/Reposts Error: $e");
+    } catch (_) {
+      debugPrint("Profile posts loading failed.");
     }
   }
 

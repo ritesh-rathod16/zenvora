@@ -35,14 +35,14 @@ class DisappearingMessagesWorker:
             except asyncio.CancelledError:
                 logger.info("Disappearing messages cleanup loop cancelled.")
                 break
-            except (PyMongoError, TimeoutError) as e:
+            except (PyMongoError, TimeoutError):
                 consecutive_errors += 1
                 backoff = min(60.0, (2.0 ** min(consecutive_errors, 5)) + random.uniform(0, 1))
-                logger.warning(f"Disappearing messages worker db delay (attempt {consecutive_errors}, retrying in {backoff:.1f}s): {e}")
+                logger.warning(f"Disappearing messages worker database delay (attempt {consecutive_errors}, retrying in {backoff:.1f}s).")
                 await asyncio.sleep(backoff)
-            except Exception as e:
+            except Exception:
                 consecutive_errors += 1
-                logger.error(f"Disappearing messages worker unexpected error: {e}")
+                logger.error("Disappearing messages worker operation failed.")
                 await asyncio.sleep(15)
 
     async def cleanup_expired_messages(self):

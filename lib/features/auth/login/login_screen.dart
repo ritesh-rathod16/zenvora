@@ -38,8 +38,6 @@ class _LoginScreenState extends State<LoginScreen> {
         'password': _passwordController.text.trim(),
       });
 
-      debugPrint("LOGIN RESPONSE: ${response.body}");
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
 
@@ -54,10 +52,6 @@ class _LoginScreenState extends State<LoginScreen> {
           key: 'user',
           value: jsonEncode(data['user']),
         );
-
-        // 🔍 Verify storage (debug)
-        final savedToken = await _storage.read(key: 'token');
-        debugPrint("SAVED TOKEN: $savedToken");
 
         if (!mounted) return;
 

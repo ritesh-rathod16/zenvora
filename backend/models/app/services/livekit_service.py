@@ -48,12 +48,12 @@ class LiveKitService:
                 .with_ttl(timedelta(hours=1)) 
 
             generated_jwt = token.to_jwt()
-            logger.info(f"LiveKit: Token generated for {participant_identity} in room {room_name}")
+            logger.info("LiveKit participant token generated.")
             return generated_jwt
             
         except Exception as e:
-            logger.error(f"LiveKit Token Generation Failure: {str(e)}")
-            raise Exception(f"Failed to generate LiveKit access token: {str(e)}")
+            logger.error("LiveKit token generation failed.")
+            raise RuntimeError("Failed to generate LiveKit access token.") from e
 
     async def create_room(self, name: str, empty_timeout: int = 300, max_participants: int = 1000):
         """
@@ -68,11 +68,11 @@ class LiveKitService:
                     max_participants=max_participants
                 )
             )
-            logger.info(f"LiveKit: Room '{name}' successfully created.")
+            logger.info("LiveKit room created.")
             return room
-        except Exception as e:
-            logger.error(f"LiveKit Room Creation Error: {str(e)}")
-            raise e
+        except Exception:
+            logger.error("LiveKit room creation failed.")
+            raise
         finally:
             await lk_api.aclose()
 
@@ -84,9 +84,9 @@ class LiveKitService:
         try:
             res = await lk_api.room.list_rooms(api.ListRoomsRequest())
             return res.rooms
-        except Exception as e:
-            logger.error(f"LiveKit List Rooms Error: {str(e)}")
-            return []
+        except Exception:
+            logger.error("LiveKit room listing failed.")
+            raise
         finally:
             await lk_api.aclose()
 
@@ -103,10 +103,10 @@ class LiveKitService:
         lk_api = api.LiveKitAPI(self.url, self.api_key, self.api_secret)
         try:
             await lk_api.room.delete_room(api.DeleteRoomRequest(room=room_name))
-            logger.info(f"LiveKit: Room '{room_name}' has been terminated by administrator.")
-        except Exception as e:
-            logger.error(f"LiveKit Room Deletion Error: {str(e)}")
-            raise e
+            logger.info("LiveKit room terminated by administrator.")
+        except Exception:
+            logger.error("LiveKit room deletion failed.")
+            raise
         finally:
             await lk_api.aclose()
 
@@ -119,10 +119,10 @@ class LiveKitService:
             await lk_api.room.remove_participant(
                 api.RoomParticipantIdentity(room=room_name, identity=identity)
             )
-            logger.info(f"LiveKit: Kicked participant {identity} from room {room_name}")
-        except Exception as e:
-            logger.error(f"LiveKit Participant Removal Error: {str(e)}")
-            raise e
+            logger.info("LiveKit participant removed by administrator.")
+        except Exception:
+            logger.error("LiveKit participant removal failed.")
+            raise
         finally:
             await lk_api.aclose()
 
@@ -140,10 +140,10 @@ class LiveKitService:
                     muted=muted
                 )
             )
-            logger.info(f"LiveKit: Admin {'muted' if muted else 'unmuted'} track {track_sid} for {identity}")
-        except Exception as e:
-            logger.error(f"LiveKit Track Mute Error: {str(e)}")
-            raise e
+            logger.info("LiveKit participant track updated by administrator.")
+        except Exception:
+            logger.error("LiveKit track update failed.")
+            raise
         finally:
             await lk_api.aclose()
 

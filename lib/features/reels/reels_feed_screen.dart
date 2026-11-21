@@ -223,12 +223,12 @@ class _ReelItemWidgetState extends State<_ReelItemWidget> {
             _controller.setLooping(true);
             if (widget.isActive) _controller.play();
           }
-        }).catchError((error) {
-          debugPrint("VideoPlayer initialization error: $error");
+        }).catchError((_) {
+          debugPrint("Video playback initialization failed.");
           if (mounted) setState(() => _hasError = true);
         });
-    } catch (e) {
-      debugPrint("Invalid video URL parsing error: $e");
+    } catch (_) {
+      debugPrint("Video URL parsing failed.");
       _hasError = true;
     }
   }

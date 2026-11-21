@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../core/services/auth_service.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/services/api_service.dart';
 import 'dart:convert';
@@ -54,9 +54,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   }
 
   Future<void> _logout(BuildContext context) async {
-    const storage = FlutterSecureStorage();
-    await storage.delete(key: 'token');
-    await storage.delete(key: 'user');
+    await AuthService().logout();
     if (mounted) context.go('/login');
   }
 

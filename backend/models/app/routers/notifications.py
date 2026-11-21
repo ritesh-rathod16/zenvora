@@ -29,6 +29,21 @@ async def get_notifications(
     result = []
     for n in notifs:
         actor = await User.find_one({"anonymous_username": n.actor_id}) if n.actor_id else None
+        actor_usernames = set(n.actor_ids or [])
+        if n.actor_id:
+            actor_usernames.add(n.actor_id)
+        if actor_usernames.intersection(current_user.blocked_users or []):
+            continue
+        blocked_actor = False
+        for actor_username in actor_usernames:
+            actor_user = actor if actor and actor.anonymous_username == actor_username else await User.find_one(
+                {"anonymous_username": actor_username}
+            )
+            if actor_user and current_user.anonymous_username in (actor_user.blocked_users or []):
+                blocked_actor = True
+                break
+        if blocked_actor:
+            continue
         sender_photo = actor.profile_photo_url or actor.avatar_url if actor else None
         if sender_photo and "dicebear.com" in sender_photo:
             sender_photo = None

@@ -59,8 +59,8 @@ class _FollowingScreenState extends State<FollowingScreen> {
           );
         }
       }
-    } catch (e) {
-      debugPrint("Unfollow Error: $e");
+    } catch (_) {
+      debugPrint("Unfollow request failed.");
     }
   }
 

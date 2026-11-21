@@ -3,7 +3,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 import logging
-import random
+import secrets
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -23,15 +23,15 @@ if all([SMTP_SERVER, SMTP_PORT, SMTP_LOGIN, SMTP_PASSWORD]):
     logger.info("SMTP configuration loaded successfully.")
     SMTP_PORT = int(SMTP_PORT)
 else:
-    logger.info("SMTP configuration is not set (email verification running in fallback development mode).")
+    logger.info("SMTP configuration is not set; OTP email verification is unavailable.")
 
 def generate_otp():
-    return "".join([str(random.randint(0, 9)) for _ in range(6)])
+    return f"{secrets.randbelow(1_000_000):06d}"
 
 async def send_otp_email(email: str, otp: str):
     if not all([SMTP_SERVER, SMTP_PORT, SMTP_LOGIN, SMTP_PASSWORD]):
-        logger.error("Email not sent: SMTP credentials not configured.")
-        return
+        logger.error("OTP email delivery is unavailable because SMTP is not configured.")
+        raise RuntimeError("OTP email delivery is not configured.")
 
     subject = f"{otp} is your Zenvora verification code"
     
@@ -64,7 +64,7 @@ async def send_otp_email(email: str, otp: str):
             server.starttls()
             server.login(SMTP_LOGIN, SMTP_PASSWORD)
             server.send_message(msg)
-            logger.info(f"OTP email sent successfully to {email}")
-    except Exception as e:
-        logger.error(f"Failed to send OTP email to {email}: {str(e)}")
-        raise e
+            logger.info("OTP email sent successfully.")
+    except Exception:
+        logger.error("OTP email delivery failed.")
+        raise

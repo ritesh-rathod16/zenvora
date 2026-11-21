@@ -41,6 +41,14 @@ async def accept_follow_request(request_id: str, current_user: User = Depends(ge
     freq = await FollowRequest.get(request_id)
     if not freq or freq.to_user_id != current_user.anonymous_username:
         raise HTTPException(status_code=404, detail="Follow request not found")
+    requester = await User.find_one({"anonymous_username": freq.from_user_id})
+    if not requester:
+        raise HTTPException(status_code=404, detail="Follow request not found")
+    if (
+        freq.from_user_id in (current_user.blocked_users or [])
+        or current_user.anonymous_username in (requester.blocked_users or [])
+    ):
+        raise HTTPException(status_code=403, detail="Interaction blocked")
 
     freq.status = "accepted"
     freq.updated_at = datetime.utcnow()
@@ -81,6 +89,9 @@ async def reject_follow_request(request_id: str, current_user: User = Depends(ge
     freq = await FollowRequest.get(request_id)
     if not freq or freq.to_user_id != current_user.anonymous_username:
         raise HTTPException(status_code=404, detail="Follow request not found")
+    requester = await User.find_one({"anonymous_username": freq.from_user_id})
+    if requester and current_user.anonymous_username in (requester.blocked_users or []):
+        raise HTTPException(status_code=403, detail="Interaction blocked")
 
     freq.status = "declined"
     freq.updated_at = datetime.utcnow()
@@ -97,6 +108,11 @@ async def follow_user(username: str, current_user: User = Depends(get_current_us
     target = await User.find_one({"anonymous_username": username})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    if (
+        username in (current_user.blocked_users or [])
+        or me in (target.blocked_users or [])
+    ):
+        raise HTTPException(status_code=403, detail="Interaction blocked")
 
     # If target is private, create request
     if target.is_private:
@@ -172,6 +188,11 @@ async def get_notifications(current_user: User = Depends(get_current_user)):
         sender_photo = None
         if actor_username:
             u = await User.find_one({"anonymous_username": actor_username})
+            if (
+                actor_username in (current_user.blocked_users or [])
+                or (u and current_user.anonymous_username in (u.blocked_users or []))
+            ):
+                continue
             if u:
                 sender_photo = _clean_photo(u.profile_photo_url or u.avatar_url)
 
