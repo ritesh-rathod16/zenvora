@@ -24,5 +24,6 @@ from .connect import router as connect
 from .notifications import router as notifications
 from .notes import router as notes
 from .vibes import router as vibes
+from .highlights import router as highlights
 from ..recommendation.routers.recommendation_router import router as recommendation
 from .websockets import websocket_endpoint
