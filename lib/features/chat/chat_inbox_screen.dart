@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
+import 'package:go_router/go_router.dart';
 import '../../../core/services/api_service.dart';
 import '../../../widgets/safe_avatar.dart';
 import 'chat_screen.dart';
@@ -189,6 +190,17 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
     }
   }
 
+  void _handleHorizontalDrag(DragEndDetails details) {
+    if (details.primaryVelocity! > 300) {
+      // Swipe Right -> Return to Home Screen
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      } else {
+        context.go('/home');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -197,7 +209,13 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
         backgroundColor: const Color(0xFF1A1A2E),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              context.go('/home');
+            }
+          },
         ),
         title: const Row(
           children: [
@@ -214,7 +232,9 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: GestureDetector(
+        onHorizontalDragEnd: _handleHorizontalDrag,
+        child: Column(
         children: [
           // Search Bar Immediately Below Header
           Padding(
@@ -314,6 +334,7 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 }
