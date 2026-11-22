@@ -63,14 +63,14 @@ class _FeedScreenState extends State<FeedScreen> {
 
   void _handleHorizontalDrag(DragEndDetails details) {
     if (details.primaryVelocity! > 300) {
-      // Swipe Right -> Open Direct Messages (ChatInboxScreen)
+      // Swipe Right -> Open Story Upload
+      _openStoryUploader();
+    } else if (details.primaryVelocity! < -300) {
+      // Swipe Left -> Open Direct Messages (ChatInboxScreen)
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const ChatInboxScreen()),
       );
-    } else if (details.primaryVelocity! < -300) {
-      // Swipe Left -> Open Story Upload
-      _openStoryUploader();
     }
   }
 

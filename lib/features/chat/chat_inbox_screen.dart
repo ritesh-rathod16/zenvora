@@ -337,26 +337,6 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
                         ),
                       ),
           ),
-
-          // Bottom Fixed Camera Shortcut
-          SafeArea(
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              color: const Color(0xFF1A1A2E),
-              child: Center(
-                child: TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const VideoChatScreen()),
-                    );
-                  },
-                  icon: const Icon(Icons.camera_alt_rounded, color: Color(0xFF6C63FF), size: 20),
-                  label: const Text("Camera", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );

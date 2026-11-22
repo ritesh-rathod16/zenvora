@@ -15,6 +15,7 @@ class NotificationSettingsUpdate(BaseModel):
     stories: Optional[str] = "everyone"
     system_alerts: Optional[bool] = True
 
+@router.get("")
 @router.get("/")
 async def get_notifications(
     category: Optional[str] = Query(None), # social, mentions, system

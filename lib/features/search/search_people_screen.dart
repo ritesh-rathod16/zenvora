@@ -6,6 +6,7 @@ import '../../../widgets/safe_avatar.dart';
 import '../profile/user_profile_screen.dart';
 import '../feed/models/post_model.dart';
 import '../feed/widgets/post_card.dart';
+import '../reels/reels_feed_screen.dart';
 
 class SearchPeopleScreen extends StatefulWidget {
   const SearchPeopleScreen({super.key});
@@ -18,7 +19,7 @@ class _SearchPeopleScreenState extends State<SearchPeopleScreen> {
   final _apiService = ApiService();
   final _searchController = TextEditingController();
   List<dynamic> _userResults = [];
-  List<PostModel> _explorePosts = [];
+  List<dynamic> _exploreItems = [];
   bool _isSearching = false;
   bool _isLoadingExplore = true;
 
@@ -36,12 +37,30 @@ class _SearchPeopleScreenState extends State<SearchPeopleScreen> {
 
   Future<void> _fetchExploreGrid() async {
     try {
-      final response = await _apiService.get('/posts/feed');
-      if (response.statusCode == 200 && mounted) {
-        final List<dynamic> data = jsonDecode(response.body);
-        final List<PostModel> fetched = data.map((j) => PostModel.fromJson(j)).toList();
+      final postsRes = await _apiService.get('/posts/feed');
+      final reelsRes = await _apiService.get('/reels/saved');
+
+      List<dynamic> combined = [];
+
+      if (postsRes.statusCode == 200) {
+        final List data = jsonDecode(postsRes.body);
+        for (var j in data) {
+          if (j['media_url'] != null && j['media_url'].toString().isNotEmpty) {
+            combined.add({'type': 'post', 'data': PostModel.fromJson(j)});
+          }
+        }
+      }
+
+      if (reelsRes.statusCode == 200) {
+        final List data = jsonDecode(reelsRes.body);
+        for (var r in data) {
+          combined.add({'type': 'reel', 'data': r});
+        }
+      }
+
+      if (mounted) {
         setState(() {
-          _explorePosts = fetched;
+          _exploreItems = combined;
           _isLoadingExplore = false;
         });
       }
@@ -99,7 +118,7 @@ class _SearchPeopleScreenState extends State<SearchPeopleScreen> {
                 onChanged: _onSearchChanged,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  hintText: "Search users, interests...",
+                  hintText: "Search users...",
                   hintStyle: const TextStyle(color: Colors.white38, fontSize: 14),
                   prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF6C63FF)),
                   suffixIcon: _searchController.text.isNotEmpty
@@ -150,7 +169,6 @@ class _SearchPeopleScreenState extends State<SearchPeopleScreen> {
       itemBuilder: (context, index) {
         final user = _userResults[index];
         final username = user['username'] ?? 'User';
-        final avatar = user['avatar_url'] ?? user['profile_photo_url'] ?? "https://api.dicebear.com/7.x/avataaars/png?seed=$username";
 
         return Container(
           margin: const EdgeInsets.only(bottom: 10),
@@ -180,68 +198,68 @@ class _SearchPeopleScreenState extends State<SearchPeopleScreen> {
       return const Center(child: CircularProgressIndicator(color: Color(0xFF6C63FF)));
     }
 
-    final imagePosts = _explorePosts.where((p) => p.mediaUrl != null && p.mediaUrl!.isNotEmpty).toList();
-
-    if (imagePosts.isEmpty) {
+    if (_exploreItems.isEmpty) {
       return const Center(
-        child: Text("Explore community posts", style: TextStyle(color: Colors.white38)),
+        child: Text("Explore community posts and reels", style: TextStyle(color: Colors.white38)),
       );
     }
 
     return GridView.builder(
-      padding: const EdgeInsets.all(4),
+      padding: const EdgeInsets.all(2),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
-        crossAxisSpacing: 4,
-        mainAxisSpacing: 4,
+        crossAxisSpacing: 2,
+        mainAxisSpacing: 2,
         childAspectRatio: 1.0,
       ),
-      itemCount: imagePosts.length,
+      itemCount: _exploreItems.length,
       itemBuilder: (context, index) {
-        final post = imagePosts[index];
+        final item = _exploreItems[index];
+        final isReel = item['type'] == 'reel';
+        final String? mediaUrl = isReel
+            ? (item['data']['video_url'] ?? item['data']['thumbnail_url'])
+            : (item['data'] as PostModel).mediaUrl;
+
         return GestureDetector(
           onTap: () {
-            showModalBottomSheet(
-              context: context,
-              backgroundColor: const Color(0xFF0F0F1A),
-              isScrollControlled: true,
-              shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              builder: (_) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 20),
-                child: PostCard(post: post),
-              ),
-            );
+            if (isReel) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ReelsFeedScreen()),
+              );
+            } else {
+              final PostModel post = item['data'];
+              showModalBottomSheet(
+                context: context,
+                backgroundColor: const Color(0xFF0F0F1A),
+                isScrollControlled: true,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                builder: (_) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: PostCard(post: post),
+                ),
+              );
+            }
           },
           child: Stack(
             fit: StackFit.expand,
             children: [
-              CachedNetworkImage(
-                imageUrl: post.mediaUrl!,
-                fit: BoxFit.cover,
-                placeholder: (context, url) => Container(color: Colors.white.withValues(alpha: 0.05)),
-                errorWidget: (context, url, error) => Container(color: const Color(0xFF1A1A2E)),
-              ),
-              Positioned(
-                bottom: 4,
-                right: 4,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.favorite, size: 10, color: Colors.redAccent),
-                      const SizedBox(width: 3),
-                      Text("${post.likes}", style: const TextStyle(color: Colors.white, fontSize: 10)),
-                    ],
-                  ),
+              Container(color: const Color(0xFF1A1A2E)),
+              if (mediaUrl != null && mediaUrl.isNotEmpty)
+                CachedNetworkImage(
+                  imageUrl: mediaUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(color: Colors.white.withValues(alpha: 0.05)),
+                  errorWidget: (context, url, error) => Container(color: const Color(0xFF1A1A2E)),
                 ),
-              ),
+              if (isReel)
+                const Positioned(
+                  top: 6,
+                  right: 6,
+                  child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+                ),
             ],
           ),
         );

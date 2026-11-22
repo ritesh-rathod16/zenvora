@@ -355,13 +355,6 @@ class _ChatScreenState extends State<ChatScreen> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.videocam_rounded, color: Color(0xFF00F0FF)),
-            tooltip: "Video Call",
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const VideoChatScreen()));
-            },
-          ),
-          IconButton(
             icon: const Icon(Icons.more_vert_rounded, color: Colors.white70),
             tooltip: "Chat Settings & Info",
             onPressed: _openChatInfo,
