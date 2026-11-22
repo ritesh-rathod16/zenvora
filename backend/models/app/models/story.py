@@ -11,6 +11,7 @@ class Story(Document):
     stickers: List[Dict[str, Any]] = []
     poll: Optional[Dict[str, Any]] = None
     question_box: Optional[Dict[str, Any]] = None
+    quiz: Optional[Dict[str, Any]] = None
     location_tag: Optional[str] = None
     music_track: Optional[Dict[str, Any]] = None
 

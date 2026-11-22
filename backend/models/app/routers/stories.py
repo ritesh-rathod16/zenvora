@@ -32,6 +32,9 @@ class PollVoteRequest(BaseModel):
 class QuestionResponseRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=500)
 
+class QuizVoteRequest(BaseModel):
+    option_index: int
+
 class StorySettingsUpdateRequest(BaseModel):
     allow_story_replies: Optional[str] = None # everyone, following, nobody
     allow_story_reactions: Optional[bool] = None
@@ -88,6 +91,14 @@ async def _enrich_story(story: Story, current_username: Optional[str] = None) ->
 
     is_liked = current_username in story.likes if current_username else False
 
+    quiz_data = None
+    if story.quiz:
+        q = dict(story.quiz)
+        has_voted = current_username in q.get("votes", {})
+        if current_username != story.author_id and not has_voted:
+            q.pop("correct_option_index", None)
+        quiz_data = q
+
     data = story.dict()
     data["id"] = str(story.id)
     data["_id"] = str(story.id)
@@ -95,6 +106,7 @@ async def _enrich_story(story: Story, current_username: Optional[str] = None) ->
     data["likes_count"] = len(story.likes)
     data["views_count"] = len(story.views)
     data["is_liked"] = is_liked
+    data["quiz"] = quiz_data
     data["created_at"] = story.created_at.isoformat()
     data["expires_at"] = story.expires_at.isoformat()
     data["time_ago"] = format_time_ago(story.created_at)
@@ -231,6 +243,60 @@ async def get_question_responses(story_id: str, current_user: User = Depends(get
         "responses": story.question_box.get("responses", []) if story.question_box else []
     }
 
+@router.post("/{story_id}/quiz-vote")
+async def vote_on_story_quiz(story_id: str, body: QuizVoteRequest, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story or not story.quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found on this story")
+    await _ensure_story_access(story, current_user)
+
+    uname = current_user.anonymous_username
+    quiz = story.quiz
+    options = quiz.get("options", [])
+    if not (0 <= body.option_index < len(options)):
+        raise HTTPException(status_code=400, detail="Invalid option index")
+
+    votes = quiz.get("votes", {})
+    votes[uname] = body.option_index
+    quiz["votes"] = votes
+    story.quiz = quiz
+    await story.save()
+
+    correct_index = quiz.get("correct_option_index", 0)
+    is_correct = (body.option_index == correct_index)
+
+    return {
+        "success": True,
+        "is_correct": is_correct,
+        "correct_option_index": correct_index,
+        "quiz": story.quiz
+    }
+
+@router.get("/{story_id}/quiz-stats")
+async def get_quiz_stats(story_id: str, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story or not story.quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    await _ensure_story_access(story, current_user)
+
+    if story.author_id != current_user.anonymous_username and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Only story owner can access quiz analytics")
+
+    votes = story.quiz.get("votes", {})
+    correct_index = story.quiz.get("correct_option_index", 0)
+    total_votes = len(votes)
+    correct_count = sum(1 for idx in votes.values() if idx == correct_index)
+    percentage = (correct_count / total_votes * 100) if total_votes > 0 else 0.0
+
+    return {
+        "total_votes": total_votes,
+        "correct_count": correct_count,
+        "incorrect_count": total_votes - correct_count,
+        "correct_percentage": round(percentage, 1),
+        "votes": votes,
+        "quiz": story.quiz
+    }
+
 @router.get("/hide-from")
 async def get_hide_story_users(current_user: User = Depends(get_current_user)):
     users = await User.find({"anonymous_username": {"$in": current_user.hide_story_from}}).to_list()
@@ -289,6 +355,7 @@ async def create_story(
     layers: Optional[str] = Form(None),
     poll: Optional[str] = Form(None),
     question_box: Optional[str] = Form(None),
+    quiz: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user)
 ):
     """Uploads a story image to GridFS and creates a record."""
@@ -337,6 +404,13 @@ async def create_story(
             except Exception:
                 pass
 
+        parsed_quiz = None
+        if quiz:
+            try:
+                parsed_quiz = json.loads(quiz)
+            except Exception:
+                pass
+
         new_story = Story(
             author_id=current_user.anonymous_username,
             media_url=media_url,
@@ -344,6 +418,7 @@ async def create_story(
             layers=parsed_layers,
             poll=parsed_poll,
             question_box=parsed_qbox,
+            quiz=parsed_quiz,
             is_close_friends_only=is_close_friends_only,
             expires_at=now + timedelta(hours=24)
         )
