@@ -395,6 +395,52 @@ async def search_gifs(q: str, current_user: User = Depends(get_current_user)):
     except Exception:
         return []
 
+@router.get("/music/trending")
+async def get_trending_music(current_user: User = Depends(get_current_user)):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get("https://api.deezer.com/chart/0/tracks")
+            if res.status_code == 200:
+                data = res.json()
+                tracks = []
+                for item in data.get("data", [])[:20]:
+                    tracks.append({
+                        "id": str(item.get("id")),
+                        "title": item.get("title"),
+                        "artist": item.get("artist", {}).get("name"),
+                        "album_art": item.get("album", {}).get("cover_medium"),
+                        "preview_url": item.get("preview"),
+                        "duration": item.get("duration", 30),
+                        "genre": "Pop"
+                    })
+                return tracks
+        return []
+    except Exception:
+        return []
+
+@router.get("/music/search")
+async def search_music(q: str, current_user: User = Depends(get_current_user)):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"https://api.deezer.com/search?q={q}")
+            if res.status_code == 200:
+                data = res.json()
+                tracks = []
+                for item in data.get("data", [])[:20]:
+                    tracks.append({
+                        "id": str(item.get("id")),
+                        "title": item.get("title"),
+                        "artist": item.get("artist", {}).get("name"),
+                        "album_art": item.get("album", {}).get("cover_medium"),
+                        "preview_url": item.get("preview"),
+                        "duration": item.get("duration", 30),
+                        "genre": item.get("album", {}).get("title", "Music")
+                    })
+                return tracks
+        return []
+    except Exception:
+        return []
+
 @router.post("/create")
 @router.post("/upload")
 async def create_story(

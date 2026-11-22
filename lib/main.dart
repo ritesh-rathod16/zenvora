@@ -21,6 +21,7 @@ import 'package:zenvora/features/admin/admin_chats_screen.dart';
 import 'package:zenvora/features/rooms/voice_rooms_screen.dart';
 import 'package:zenvora/features/stories/providers/story_camera_provider.dart';
 import 'package:zenvora/features/stories/providers/story_provider.dart';
+import 'package:zenvora/features/stories/providers/music_provider.dart';
 import 'package:zenvora/features/stories/screens/story_camera_screen.dart';
 import 'package:zenvora/services/socket_service.dart';
 import 'package:zenvora/services/voice_service.dart';
@@ -37,6 +38,7 @@ void main() {
         ChangeNotifierProvider(create: (_) => SocialProvider()),
         ChangeNotifierProvider(create: (_) => StoryCameraProvider()),
         ChangeNotifierProvider(create: (_) => StoryProvider()),
+        ChangeNotifierProvider(create: (_) => MusicProvider()),
       ],
       child: const ZenvoraApp(),
     ),
