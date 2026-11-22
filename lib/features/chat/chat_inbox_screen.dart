@@ -3,7 +3,6 @@ import 'dart:convert';
 import '../../../core/services/api_service.dart';
 import '../../../widgets/safe_avatar.dart';
 import 'chat_screen.dart';
-import '../random_chat/video_chat_screen.dart';
 
 class ChatInboxScreen extends StatefulWidget {
   const ChatInboxScreen({super.key});
@@ -209,13 +208,6 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.videocam_rounded, color: Colors.white, size: 24),
-            tooltip: "Video Call",
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const VideoChatScreen()));
-            },
-          ),
-          IconButton(
             icon: const Icon(Icons.edit_square, color: Colors.white, size: 22),
             tooltip: "New Message",
             onPressed: _startNewChat,
@@ -293,35 +285,18 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(color: Colors.white54, fontSize: 12),
                               ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.camera_alt_outlined, color: Colors.white54, size: 22),
-                                    tooltip: "Send Snap",
-                                    onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => ChatScreen(chatId: chatId, otherUser: otherUser.toString()),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                  PopupMenuButton<String>(
-                                    icon: const Icon(Icons.more_vert_rounded, color: Colors.white38, size: 20),
-                                    color: const Color(0xFF1A1A2E),
-                                    onSelected: (val) {
-                                      if (val == 'pin') _togglePin(chatId);
-                                      if (val == 'archive') _toggleArchive(chatId);
-                                      if (val == 'delete') _deleteChat(chatId);
-                                    },
-                                    itemBuilder: (_) => [
-                                      PopupMenuItem(value: 'pin', child: Text(isPinned ? "Unpin chat" : "Pin chat", style: const TextStyle(color: Colors.white))),
-                                      const PopupMenuItem(value: 'archive', child: Text("Archive chat", style: TextStyle(color: Colors.white))),
-                                      const PopupMenuItem(value: 'delete', child: Text("Delete chat", style: TextStyle(color: Colors.redAccent))),
-                                    ],
-                                  ),
+                              trailing: PopupMenuButton<String>(
+                                icon: const Icon(Icons.more_vert_rounded, color: Colors.white38, size: 20),
+                                color: const Color(0xFF1A1A2E),
+                                onSelected: (val) {
+                                  if (val == 'pin') _togglePin(chatId);
+                                  if (val == 'archive') _toggleArchive(chatId);
+                                  if (val == 'delete') _deleteChat(chatId);
+                                },
+                                itemBuilder: (_) => [
+                                  PopupMenuItem(value: 'pin', child: Text(isPinned ? "Unpin chat" : "Pin chat", style: const TextStyle(color: Colors.white))),
+                                  const PopupMenuItem(value: 'archive', child: Text("Archive chat", style: TextStyle(color: Colors.white))),
+                                  const PopupMenuItem(value: 'delete', child: Text("Delete chat", style: TextStyle(color: Colors.redAccent))),
                                 ],
                               ),
                               onTap: () {
