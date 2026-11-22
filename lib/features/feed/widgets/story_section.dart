@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import 'package:image_picker/image_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../core/services/api_service.dart';
 import '../../../widgets/safe_avatar.dart';
 import 'story_viewer.dart';
-import 'story_editor_screen.dart';
+import '../../stories/screens/story_camera_screen.dart';
 
 class StorySection extends StatefulWidget {
   const StorySection({super.key});
@@ -60,21 +59,16 @@ class _StorySectionState extends State<StorySection> {
     }
   }
 
-  Future<void> _addStory() async {
-    final picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+  void _addStory() async {
+    final bool? published = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const StoryCameraScreen(),
+      ),
+    );
 
-    if (image != null && mounted) {
-      final bool? published = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => StoryEditorScreen(imagePath: image.path),
-        ),
-      );
-
-      if (published == true && mounted) {
-        _loadData();
-      }
+    if (published == true && mounted) {
+      _loadData();
     }
   }
 

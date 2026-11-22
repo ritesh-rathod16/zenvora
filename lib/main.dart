@@ -19,6 +19,8 @@ import 'package:zenvora/features/admin/admin_settings_screen.dart';
 import 'package:zenvora/features/admin/admin_analytics_screen.dart';
 import 'package:zenvora/features/admin/admin_chats_screen.dart';
 import 'package:zenvora/features/rooms/voice_rooms_screen.dart';
+import 'package:zenvora/features/stories/providers/story_camera_provider.dart';
+import 'package:zenvora/features/stories/screens/story_camera_screen.dart';
 import 'package:zenvora/services/socket_service.dart';
 import 'package:zenvora/services/voice_service.dart';
 import 'package:zenvora/core/providers/social_provider.dart';
@@ -32,6 +34,7 @@ void main() {
         ChangeNotifierProvider(create: (_) => SocketService()),
         ChangeNotifierProvider(create: (_) => VoiceService()),
         ChangeNotifierProvider(create: (_) => SocialProvider()),
+        ChangeNotifierProvider(create: (_) => StoryCameraProvider()),
       ],
       child: const ZenvoraApp(),
     ),
@@ -61,6 +64,7 @@ final _router = GoRouter(
     GoRoute(path: '/matchmaking', builder: (context, state) => const MatchmakingScreen()),
     GoRoute(path: '/video-chat', builder: (context, state) => const VideoChatScreen()),
     GoRoute(path: '/rooms', builder: (context, state) => const VoiceRoomsScreen()),
+    GoRoute(path: '/stories/camera', builder: (context, state) => const StoryCameraScreen()),
     
     // Admin Routes
     GoRoute(path: '/admin', builder: (context, state) => const AdminDashboardScreen()),
