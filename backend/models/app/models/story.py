@@ -20,6 +20,7 @@ class Story(Document):
     likes: List[str] = []
     views: List[Dict[str, Any]] = []
     reactions: List[Dict[str, Any]] = []
+    layers: List[Dict[str, Any]] = []
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     expires_at: datetime = Field(default_factory=lambda: datetime.utcnow() + timedelta(hours=24))

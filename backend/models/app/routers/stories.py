@@ -8,7 +8,10 @@ from ..core.security import get_current_user, get_optional_current_user, users_b
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket
+import os
 import io
+import json
+import httpx
 from PIL import Image
 from bson import ObjectId
 import logging
@@ -184,12 +187,37 @@ async def unhide_story_from_user(username: str, current_user: User = Depends(get
         await current_user.save()
     return {"message": f"Unhid stories from @{username}"}
 
+GIPHY_API_KEY = os.getenv("GIPHY_API_KEY", "dc6zaTOxFJmzC")
+
+@router.get("/gifs/trending")
+async def get_trending_gifs(current_user: User = Depends(get_current_user)):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"https://api.giphy.com/v1/gifs/trending?api_key={GIPHY_API_KEY}&limit=20")
+            if res.status_code == 200:
+                return res.json().get("data", [])
+        return []
+    except Exception:
+        return []
+
+@router.get("/gifs/search")
+async def search_gifs(q: str, current_user: User = Depends(get_current_user)):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"https://api.giphy.com/v1/gifs/search?api_key={GIPHY_API_KEY}&q={q}&limit=20")
+            if res.status_code == 200:
+                return res.json().get("data", [])
+        return []
+    except Exception:
+        return []
+
 @router.post("/create")
 @router.post("/upload")
 async def create_story(
     file: UploadFile = File(...),
     is_close_friends_only: bool = Form(False),
     caption: Optional[str] = Form(None),
+    layers: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user)
 ):
     """Uploads a story image to GridFS and creates a record."""
@@ -217,10 +245,18 @@ async def create_story(
 
         media_url = f"/media/stories/{file_id}"
 
+        parsed_layers = []
+        if layers:
+            try:
+                parsed_layers = json.loads(layers)
+            except Exception:
+                pass
+
         new_story = Story(
             author_id=current_user.anonymous_username,
             media_url=media_url,
             caption=caption,
+            layers=parsed_layers,
             is_close_friends_only=is_close_friends_only,
             expires_at=now + timedelta(hours=24)
         )
