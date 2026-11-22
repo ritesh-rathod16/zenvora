@@ -35,6 +35,9 @@ class QuestionResponseRequest(BaseModel):
 class QuizVoteRequest(BaseModel):
     option_index: int
 
+class SliderVoteRequest(BaseModel):
+    value: float = Field(..., ge=0.0, le=1.0)
+
 class StorySettingsUpdateRequest(BaseModel):
     allow_story_replies: Optional[str] = None # everyone, following, nobody
     allow_story_reactions: Optional[bool] = None
@@ -297,6 +300,52 @@ async def get_quiz_stats(story_id: str, current_user: User = Depends(get_current
         "quiz": story.quiz
     }
 
+@router.post("/{story_id}/slider-vote")
+async def vote_on_story_slider(story_id: str, body: SliderVoteRequest, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story or not story.emoji_slider:
+        raise HTTPException(status_code=404, detail="Emoji slider not found on this story")
+    await _ensure_story_access(story, current_user)
+
+    uname = current_user.anonymous_username
+    slider = story.emoji_slider
+    votes = slider.get("votes", {})
+    votes[uname] = body.value
+    slider["votes"] = votes
+    story.emoji_slider = slider
+    await story.save()
+
+    total = len(votes)
+    avg = sum(votes.values()) / total if total > 0 else 0.0
+
+    return {
+        "success": True,
+        "average_value": round(avg, 2),
+        "total_votes": total,
+        "slider": story.emoji_slider
+    }
+
+@router.get("/{story_id}/slider-stats")
+async def get_slider_stats(story_id: str, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story or not story.emoji_slider:
+        raise HTTPException(status_code=404, detail="Emoji slider not found")
+    await _ensure_story_access(story, current_user)
+
+    if story.author_id != current_user.anonymous_username and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Only story owner can access slider analytics")
+
+    votes = story.emoji_slider.get("votes", {})
+    total = len(votes)
+    avg = sum(votes.values()) / total if total > 0 else 0.0
+
+    return {
+        "total_votes": total,
+        "average_value": round(avg, 2),
+        "votes": votes,
+        "slider": story.emoji_slider
+    }
+
 @router.get("/hide-from")
 async def get_hide_story_users(current_user: User = Depends(get_current_user)):
     users = await User.find({"anonymous_username": {"$in": current_user.hide_story_from}}).to_list()
@@ -356,6 +405,7 @@ async def create_story(
     poll: Optional[str] = Form(None),
     question_box: Optional[str] = Form(None),
     quiz: Optional[str] = Form(None),
+    emoji_slider: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user)
 ):
     """Uploads a story image to GridFS and creates a record."""
@@ -411,6 +461,13 @@ async def create_story(
             except Exception:
                 pass
 
+        parsed_slider = None
+        if emoji_slider:
+            try:
+                parsed_slider = json.loads(emoji_slider)
+            except Exception:
+                pass
+
         new_story = Story(
             author_id=current_user.anonymous_username,
             media_url=media_url,
@@ -419,6 +476,7 @@ async def create_story(
             poll=parsed_poll,
             question_box=parsed_qbox,
             quiz=parsed_quiz,
+            emoji_slider=parsed_slider,
             is_close_friends_only=is_close_friends_only,
             expires_at=now + timedelta(hours=24)
         )
