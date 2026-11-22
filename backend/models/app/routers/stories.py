@@ -452,6 +452,7 @@ async def create_story(
     question_box: Optional[str] = Form(None),
     quiz: Optional[str] = Form(None),
     emoji_slider: Optional[str] = Form(None),
+    music_track: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user)
 ):
     """Uploads a story image to GridFS and creates a record."""
@@ -514,6 +515,13 @@ async def create_story(
             except Exception:
                 pass
 
+        parsed_music = None
+        if music_track:
+            try:
+                parsed_music = json.loads(music_track)
+            except Exception:
+                pass
+
         new_story = Story(
             author_id=current_user.anonymous_username,
             media_url=media_url,
@@ -523,6 +531,7 @@ async def create_story(
             question_box=parsed_qbox,
             quiz=parsed_quiz,
             emoji_slider=parsed_slider,
+            music_track=parsed_music,
             is_close_friends_only=is_close_friends_only,
             expires_at=now + timedelta(hours=24)
         )
