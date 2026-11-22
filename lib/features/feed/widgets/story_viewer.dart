@@ -6,6 +6,8 @@ import 'dart:convert';
 import '../../../core/services/api_service.dart';
 import '../../../widgets/safe_avatar.dart';
 import '../../profile/user_profile_screen.dart';
+import '../../stories/models/music_track_model.dart';
+import '../../stories/widgets/music_sticker_widget.dart';
 
 class StoryViewer extends StatefulWidget {
   final List<dynamic> stories;
@@ -294,6 +296,145 @@ class _StoryViewerState extends State<StoryViewer> with SingleTickerProviderStat
     return Uri.parse('${ApiService.baseUrl}/').resolve(value).toString();
   }
 
+  Widget _buildInteractiveStickers(Map<String, dynamic> s) {
+    List<Widget> overlays = [];
+
+    // 1. Music Track Sticker
+    if (s['music_track'] != null) {
+      final trackData = s['music_track'];
+      final track = MusicTrackModel.fromJson(trackData);
+      overlays.add(
+        Positioned(
+          top: 90,
+          left: 20,
+          child: MusicStickerWidget(track: track, style: MusicStickerStyle.albumArtCard),
+        ),
+      );
+    }
+
+    // 2. Poll Sticker
+    if (s['poll'] != null) {
+      final poll = s['poll'];
+      final question = poll['question'] ?? 'Poll';
+      final List options = poll['options'] ?? [];
+      overlays.add(
+        Positioned(
+          bottom: 140,
+          left: 24,
+          right: 24,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFF6C63FF), width: 1.5),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(question, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 12),
+                ...options.asMap().entries.map((e) {
+                  final idx = e.key;
+                  final opt = e.value;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        _pauseStory();
+                        try {
+                          final res = await _apiService.post('/stories/${s['id'] ?? s['_id']}/poll-vote', {'option_index': idx});
+                          if (res.statusCode == 200 && mounted) {
+                            setState(() {
+                              s['poll'] = jsonDecode(res.body)['poll'];
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Vote recorded!")));
+                          }
+                        } catch (_) {}
+                        _resumeStory();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1A1A2E),
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(double.infinity, 40),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text(opt.toString()),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // 3. Quiz Sticker
+    if (s['quiz'] != null) {
+      final quiz = s['quiz'];
+      final question = quiz['question'] ?? 'Quiz';
+      final List options = quiz['options'] ?? [];
+      overlays.add(
+        Positioned(
+          bottom: 140,
+          left: 24,
+          right: 24,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.pinkAccent, width: 1.5),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(question, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 12),
+                ...options.asMap().entries.map((e) {
+                  final idx = e.key;
+                  final opt = e.value;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        _pauseStory();
+                        try {
+                          final res = await _apiService.post('/stories/${s['id'] ?? s['_id']}/quiz-vote', {'option_index': idx});
+                          if (res.statusCode == 200 && mounted) {
+                            final data = jsonDecode(res.body);
+                            final isCorrect = data['is_correct'];
+                            setState(() {
+                              s['quiz'] = data['quiz'];
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(isCorrect ? "Correct! 🎉" : "Incorrect ❌")),
+                            );
+                          }
+                        } catch (_) {}
+                        _resumeStory();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1A1A2E),
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(double.infinity, 40),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text(opt.toString()),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Stack(children: overlays);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.stories.isEmpty) return const SizedBox();
@@ -318,15 +459,21 @@ class _StoryViewerState extends State<StoryViewer> with SingleTickerProviderStat
                 itemBuilder: (context, index) {
                   final s = widget.stories[index];
                   final mediaUrl = _resolveMediaUrl(s['media_url']?.toString() ?? '');
-                  return CachedNetworkImage(
-                    imageUrl: mediaUrl,
-                    fit: BoxFit.contain,
-                    placeholder: (context, url) => const Center(
-                      child: CircularProgressIndicator(color: Color(0xFF6C63FF)),
-                    ),
-                    errorWidget: (context, url, error) => const Center(
-                      child: Icon(Icons.broken_image, color: Colors.white38, size: 48),
-                    ),
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CachedNetworkImage(
+                        imageUrl: mediaUrl,
+                        fit: BoxFit.contain,
+                        placeholder: (context, url) => const Center(
+                          child: CircularProgressIndicator(color: Color(0xFF6C63FF)),
+                        ),
+                        errorWidget: (context, url, error) => const Center(
+                          child: Icon(Icons.broken_image, color: Colors.white38, size: 48),
+                        ),
+                      ),
+                      _buildInteractiveStickers(s),
+                    ],
                   );
                 },
               ),
@@ -458,7 +605,7 @@ class _StoryViewerState extends State<StoryViewer> with SingleTickerProviderStat
                           padding: const EdgeInsets.only(bottom: 10),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                            children: ['❤️', '😂', '😮', '🔥', '👏'].map((emoji) {
+                            children: ['❤️', '🔥', '😂', '😮', '👏'].map((emoji) {
                               return GestureDetector(
                                 onTap: () => _sendEmojiReaction(emoji),
                                 child: Container(
