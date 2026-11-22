@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import '../../../core/services/api_service.dart';
+import '../../stories/widgets/story_drawing_canvas.dart';
 
 class StoryEditorScreen extends StatefulWidget {
   final String imagePath;
@@ -14,8 +15,22 @@ class StoryEditorScreen extends StatefulWidget {
 class _StoryEditorScreenState extends State<StoryEditorScreen> {
   final ApiService _apiService = ApiService();
   final TextEditingController _captionController = TextEditingController();
+  final GlobalKey<StoryDrawingCanvasState> _canvasKey = GlobalKey<StoryDrawingCanvasState>();
+
   bool _isCloseFriendsOnly = false;
   bool _isUploading = false;
+  bool _isDrawingMode = false;
+  Color _selectedDrawingColor = const Color(0xFF6C63FF);
+  final double _strokeWidth = 4.0;
+
+  final List<Color> _palette = const [
+    Color(0xFF6C63FF),
+    Colors.white,
+    Colors.amberAccent,
+    Colors.redAccent,
+    Colors.cyanAccent,
+    Colors.greenAccent,
+  ];
 
   @override
   void dispose() {
@@ -71,17 +86,26 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
             fit: BoxFit.cover,
           ),
 
+          // Freehand Drawing Canvas Overlay
+          if (_isDrawingMode)
+            StoryDrawingCanvas(
+              key: _canvasKey,
+              selectedColor: _selectedDrawingColor,
+              strokeWidth: _strokeWidth,
+            ),
+
           // Gradient Overlay
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.black54, Colors.transparent, Colors.black87],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                stops: [0.0, 0.5, 1.0],
+          if (!_isDrawingMode)
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.black54, Colors.transparent, Colors.black87],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: [0.0, 0.5, 1.0],
+                ),
               ),
             ),
-          ),
 
           // Top Header Controls
           Positioned(
@@ -98,11 +122,15 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
                 Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.text_fields_rounded, color: Colors.white, size: 26),
-                      onPressed: () {},
+                      icon: Icon(
+                        Icons.draw_rounded,
+                        color: _isDrawingMode ? const Color(0xFF6C63FF) : Colors.white,
+                        size: 26,
+                      ),
+                      onPressed: () => setState(() => _isDrawingMode = !_isDrawingMode),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.sticky_note_2_outlined, color: Colors.white, size: 26),
+                      icon: const Icon(Icons.text_fields_rounded, color: Colors.white, size: 26),
                       onPressed: () {},
                     ),
                   ],
@@ -111,73 +139,112 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
             ),
           ),
 
-          // Bottom Controls & Caption
-          Positioned(
-            bottom: 30,
-            left: 16,
-            right: 16,
-            child: Column(
-              children: [
-                TextField(
-                  controller: _captionController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: "Add a caption...",
-                    hintStyle: const TextStyle(color: Colors.white54),
-                    filled: true,
-                    fillColor: Colors.black45,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          // Drawing Palette Bar when in Drawing Mode
+          if (_isDrawingMode)
+            Positioned(
+              top: 100,
+              left: 16,
+              right: 16,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.undo_rounded, color: Colors.white),
+                    onPressed: () => _canvasKey.currentState?.undo(),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _isUploading
-                            ? null
-                            : () {
-                                setState(() => _isCloseFriendsOnly = false);
-                                _publishStory();
-                              },
-                        icon: const Icon(Icons.send_rounded, size: 18),
-                        label: const Text("Your Story"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF6C63FF),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                    onPressed: () => _canvasKey.currentState?.clear(),
+                  ),
+                  const SizedBox(width: 12),
+                  ..._palette.map((color) => GestureDetector(
+                    onTap: () => setState(() => _selectedDrawingColor = color),
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _selectedDrawingColor == color ? Colors.white : Colors.transparent,
+                          width: 2,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isUploading
-                            ? null
-                            : () {
-                                setState(() => _isCloseFriendsOnly = true);
-                                _publishStory();
-                              },
-                        icon: const Icon(Icons.stars_rounded, color: Color(0xFF00FF87), size: 18),
-                        label: const Text("Close Friends"),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFF00FF87), width: 1.5),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                  )),
+                ],
+              ),
             ),
-          ),
+
+          // Bottom Controls & Caption
+          if (!_isDrawingMode)
+            Positioned(
+              bottom: 30,
+              left: 16,
+              right: 16,
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _captionController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: "Add a caption...",
+                      hintStyle: const TextStyle(color: Colors.white54),
+                      filled: true,
+                      fillColor: Colors.black45,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _isUploading
+                              ? null
+                              : () {
+                                  setState(() => _isCloseFriendsOnly = false);
+                                  _publishStory();
+                                },
+                          icon: const Icon(Icons.send_rounded, size: 18),
+                          label: const Text("Your Story"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF6C63FF),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isUploading
+                              ? null
+                              : () {
+                                  setState(() => _isCloseFriendsOnly = true);
+                                  _publishStory();
+                                },
+                          icon: const Icon(Icons.stars_rounded, color: Color(0xFF00FF87), size: 18),
+                          label: const Text("Close Friends"),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Color(0xFF00FF87), width: 1.5),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
 
           if (_isUploading)
             Container(
