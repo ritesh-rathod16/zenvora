@@ -29,6 +29,9 @@ class StoryReplyRequest(BaseModel):
 class PollVoteRequest(BaseModel):
     option_index: int
 
+class QuestionResponseRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=500)
+
 class StorySettingsUpdateRequest(BaseModel):
     allow_story_replies: Optional[str] = None # everyone, following, nobody
     allow_story_reactions: Optional[bool] = None
@@ -162,6 +165,72 @@ async def vote_on_story_poll(story_id: str, body: PollVoteRequest, current_user:
     await story.save()
     return {"success": True, "poll": story.poll}
 
+@router.post("/{story_id}/question-response")
+async def respond_to_question(story_id: str, body: QuestionResponseRequest, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story or not story.question_box:
+        raise HTTPException(status_code=404, detail="Question box not found on this story")
+    await _ensure_story_access(story, current_user)
+
+    sender = current_user.anonymous_username
+    recipient = story.author_id
+
+    qbox = story.question_box
+    responses = qbox.get("responses", [])
+    responses.append({
+        "username": sender,
+        "text": body.text,
+        "created_at": datetime.utcnow().isoformat()
+    })
+    qbox["responses"] = responses
+    story.question_box = qbox
+    await story.save()
+
+    if sender != recipient:
+        chat = await Chat.find_one({"participants": {"$all": [sender, recipient], "$size": 2}})
+        if not chat:
+            chat = Chat(participants=[sender, recipient], last_message=f"Answered your question: {body.text}")
+            await chat.insert()
+
+        msg = Message(
+            chat_id=str(chat.id),
+            sender_id=sender,
+            content=f"Answered your question: {body.text}",
+            message_type="story_reply",
+            attachment_url=story.media_url
+        )
+        await msg.insert()
+
+        chat.last_message = f"Answered your question: {body.text[:40]}"
+        chat.updated_at = datetime.utcnow()
+        await chat.save()
+
+        notif = Notification(
+            user_id=recipient,
+            type="story_question_response",
+            actor_ids=[sender],
+            message=f"@{sender} answered your question: {body.text[:50]}",
+            metadata={"story_id": story_id, "chat_id": str(chat.id)}
+        )
+        await notif.insert()
+
+    return {"success": True, "message": "Response delivered to story owner"}
+
+@router.get("/{story_id}/question-responses")
+async def get_question_responses(story_id: str, current_user: User = Depends(get_current_user)):
+    story = await Story.get(story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    await _ensure_story_access(story, current_user)
+
+    if story.author_id != current_user.anonymous_username and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Only story owner can view question responses")
+
+    return {
+        "question_box": story.question_box,
+        "responses": story.question_box.get("responses", []) if story.question_box else []
+    }
+
 @router.get("/hide-from")
 async def get_hide_story_users(current_user: User = Depends(get_current_user)):
     users = await User.find({"anonymous_username": {"$in": current_user.hide_story_from}}).to_list()
@@ -219,6 +288,7 @@ async def create_story(
     caption: Optional[str] = Form(None),
     layers: Optional[str] = Form(None),
     poll: Optional[str] = Form(None),
+    question_box: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user)
 ):
     """Uploads a story image to GridFS and creates a record."""
@@ -260,12 +330,20 @@ async def create_story(
             except Exception:
                 pass
 
+        parsed_qbox = None
+        if question_box:
+            try:
+                parsed_qbox = json.loads(question_box)
+            except Exception:
+                pass
+
         new_story = Story(
             author_id=current_user.anonymous_username,
             media_url=media_url,
             caption=caption,
             layers=parsed_layers,
             poll=parsed_poll,
+            question_box=parsed_qbox,
             is_close_friends_only=is_close_friends_only,
             expires_at=now + timedelta(hours=24)
         )
