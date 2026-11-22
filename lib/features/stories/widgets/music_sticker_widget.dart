@@ -8,12 +8,16 @@ class MusicStickerWidget extends StatelessWidget {
   final MusicTrackModel track;
   final MusicStickerStyle style;
   final Color backgroundColor;
+  final List<Map<String, dynamic>>? lyricsLines;
+  final double currentPositionSeconds;
 
   const MusicStickerWidget({
     super.key,
     required this.track,
     this.style = MusicStickerStyle.albumArtCard,
     this.backgroundColor = const Color(0xFF1A1A2E),
+    this.lyricsLines,
+    this.currentPositionSeconds = 0.0,
   });
 
   @override
@@ -53,9 +57,20 @@ class MusicStickerWidget extends StatelessWidget {
         );
 
       case MusicStickerStyle.lyricsCard:
+        String activeLyric = "♪ ${track.title} • ${track.artist} ♪";
+        if (lyricsLines != null && lyricsLines!.isNotEmpty) {
+          for (var line in lyricsLines!.reversed) {
+            final t = (line['time'] as num?)?.toDouble() ?? 0.0;
+            if (currentPositionSeconds >= t) {
+              activeLyric = line['text']?.toString() ?? activeLyric;
+              break;
+            }
+          }
+        }
+
         return Container(
-          width: 260,
-          padding: const EdgeInsets.all(16),
+          width: 280,
+          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(20),
@@ -68,19 +83,19 @@ class MusicStickerWidget extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                "♪ Now Playing ♪",
+                "♪ Synchronized Lyrics ♪",
                 style: TextStyle(color: Color(0xFF00D2FF), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                activeLyric,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, height: 1.3),
               ),
               const SizedBox(height: 8),
               Text(
-                "\"${track.title}\"",
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 4),
-              Text(
                 track.artist,
-                style: const TextStyle(color: Colors.white60, fontSize: 12),
+                style: const TextStyle(color: Colors.white60, fontSize: 11),
               ),
             ],
           ),

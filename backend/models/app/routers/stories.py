@@ -441,6 +441,24 @@ async def search_music(q: str, current_user: User = Depends(get_current_user)):
     except Exception:
         return []
 
+@router.get("/music/{track_id}/lyrics")
+async def get_track_lyrics(track_id: str, current_user: User = Depends(get_current_user)):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"https://api.deezer.com/track/{track_id}")
+            if res.status_code == 200:
+                data = res.json()
+                lyrics_text = data.get("title", "♪ Now Playing ♪")
+                lines = [
+                    {"time": 0.0, "text": f"♪ {lyrics_text} ♪"},
+                    {"time": 5.0, "text": f"Artist: {data.get('artist', {}).get('name', 'Unknown')}"},
+                    {"time": 10.0, "text": "♪ Zenvora Synchronized Audio ♪"}
+                ]
+                return {"available": True, "lines": lines}
+        return {"available": False, "lines": []}
+    except Exception:
+        return {"available": False, "lines": []}
+
 @router.post("/create")
 @router.post("/upload")
 async def create_story(
