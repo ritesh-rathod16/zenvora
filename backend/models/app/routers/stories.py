@@ -218,6 +218,7 @@ async def create_story(
     is_close_friends_only: bool = Form(False),
     caption: Optional[str] = Form(None),
     layers: Optional[str] = Form(None),
+    poll: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user)
 ):
     """Uploads a story image to GridFS and creates a record."""
@@ -252,11 +253,19 @@ async def create_story(
             except Exception:
                 pass
 
+        parsed_poll = None
+        if poll:
+            try:
+                parsed_poll = json.loads(poll)
+            except Exception:
+                pass
+
         new_story = Story(
             author_id=current_user.anonymous_username,
             media_url=media_url,
             caption=caption,
             layers=parsed_layers,
+            poll=parsed_poll,
             is_close_friends_only=is_close_friends_only,
             expires_at=now + timedelta(hours=24)
         )
