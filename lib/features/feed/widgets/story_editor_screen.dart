@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'dart:convert';
 import '../../../core/services/api_service.dart';
 import '../../stories/widgets/story_drawing_canvas.dart';
+import '../../stories/widgets/sticker_picker_sheet.dart';
+import '../../stories/widgets/music_picker_sheet.dart';
+import '../../stories/models/music_track_model.dart';
 
 class StoryEditorScreen extends StatefulWidget {
   final String imagePath;
@@ -23,6 +27,9 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
   Color _selectedDrawingColor = const Color(0xFF6C63FF);
   final double _strokeWidth = 4.0;
 
+  Map<String, dynamic>? _selectedPoll;
+  MusicTrackModel? _selectedMusicTrack;
+
   final List<Color> _palette = const [
     Color(0xFF6C63FF),
     Colors.white,
@@ -38,18 +45,63 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
     super.dispose();
   }
 
+  void _openStickerPicker() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => StickerPickerSheet(
+        onStickerSelected: (type, data) {
+          if (type == 'poll') {
+            setState(() {
+              _selectedPoll = {
+                "question": "What's your vibe?",
+                "options": ["Yes", "No"]
+              };
+            });
+          }
+        },
+        onGifSelected: (gifUrl) {},
+      ),
+    );
+  }
+
+  void _openMusicPicker() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => MusicPickerSheet(
+        onTrackSelected: (track) {
+          setState(() {
+            _selectedMusicTrack = track;
+          });
+        },
+      ),
+    );
+  }
+
   Future<void> _publishStory() async {
     if (_isUploading) return;
     setState(() => _isUploading = true);
 
     try {
+      Map<String, String> fields = {
+        'caption': _captionController.text.trim(),
+        'is_close_friends_only': _isCloseFriendsOnly.toString(),
+      };
+
+      if (_selectedPoll != null) {
+        fields['poll'] = jsonEncode(_selectedPoll);
+      }
+      if (_selectedMusicTrack != null) {
+        fields['music_track'] = jsonEncode(_selectedMusicTrack!.toJson());
+      }
+
       final res = await _apiService.uploadFile(
         '/stories/create',
         widget.imagePath,
-        fields: {
-          'caption': _captionController.text.trim(),
-          'is_close_friends_only': _isCloseFriendsOnly.toString(),
-        },
+        fields: fields,
       );
 
       if (res.statusCode == 200 && mounted) {
@@ -130,14 +182,49 @@ class _StoryEditorScreenState extends State<StoryEditorScreen> {
                       onPressed: () => setState(() => _isDrawingMode = !_isDrawingMode),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.text_fields_rounded, color: Colors.white, size: 26),
-                      onPressed: () {},
+                      icon: const Icon(Icons.sticky_note_2_outlined, color: Colors.white, size: 26),
+                      onPressed: _openStickerPicker,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.music_note_rounded, color: Colors.white, size: 26),
+                      onPressed: _openMusicPicker,
                     ),
                   ],
                 ),
               ],
             ),
           ),
+
+          // Render active poll or music sticker preview on canvas
+          if (_selectedPoll != null)
+            Positioned(
+              bottom: 160,
+              left: 24,
+              right: 24,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black87,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFF6C63FF), width: 1.5),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_selectedPoll!['question'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 10),
+                    ...(_selectedPoll!['options'] as List).map((opt) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                        decoration: BoxDecoration(color: const Color(0xFF1A1A2E), borderRadius: BorderRadius.circular(10)),
+                        child: Center(child: Text(opt.toString(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                      ),
+                    )),
+                  ],
+                ),
+              ),
+            ),
 
           // Drawing Palette Bar when in Drawing Mode
           if (_isDrawingMode)
