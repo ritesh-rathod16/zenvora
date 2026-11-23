@@ -15,6 +15,18 @@ class StoryCameraScreen extends StatefulWidget {
 class _StoryCameraScreenState extends State<StoryCameraScreen> {
   final ImagePicker _picker = ImagePicker();
   Timer? _recordingTimer;
+  bool _hasLaunchedCamera = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_hasLaunchedCamera) {
+        _hasLaunchedCamera = true;
+        _capturePhoto();
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -24,20 +36,21 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> {
 
   Future<void> _capturePhoto() async {
     final cameraProvider = Provider.of<StoryCameraProvider>(context, listen: false);
-    final source = cameraProvider.isFrontCamera ? ImageSource.camera : ImageSource.camera;
+    final device = cameraProvider.isFrontCamera ? CameraDevice.front : CameraDevice.rear;
     try {
       final XFile? photo = await _picker.pickImage(
-        source: source,
-        preferredCameraDevice: cameraProvider.isFrontCamera ? CameraDevice.front : CameraDevice.rear,
+        source: ImageSource.camera,
+        preferredCameraDevice: device,
         imageQuality: 85,
       );
 
       if (photo != null && mounted) {
         _openStoryEditor(photo.path);
+      } else if (mounted && !_hasLaunchedCamera) {
+        Navigator.pop(context);
       }
     } catch (_) {
-      // Fallback gallery selection if camera hardware is unavailable
-      _pickFromGallery();
+      if (mounted) _pickFromGallery();
     }
   }
 
@@ -104,29 +117,32 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Camera Viewport Preview / Background
-                Container(
-                  color: const Color(0xFF0F0F1A),
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          cameraProvider.isFrontCamera ? Icons.person_outline_rounded : Icons.photo_camera_outlined,
-                          size: 80,
-                          color: Colors.white24,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          cameraProvider.isFrontCamera ? "Front Camera Active" : "Rear Camera Active",
-                          style: const TextStyle(color: Colors.white38, fontSize: 13),
-                        ),
-                      ],
+                // Live Viewport Background (Tap anywhere to open camera feed)
+                GestureDetector(
+                  onTap: _capturePhoto,
+                  child: Container(
+                    color: const Color(0xFF0F0F1A),
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            cameraProvider.isFrontCamera ? Icons.person_rounded : Icons.camera_rounded,
+                            size: 64,
+                            color: const Color(0xFF6C63FF).withValues(alpha: 0.6),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            "Tap to open Camera Viewfinder",
+                            style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
 
-                // Top Control Bar
+                // Top Control Bar (Instagram-style)
                 Positioned(
                   top: 16,
                   left: 16,
@@ -152,7 +168,10 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.flip_camera_ios_rounded, color: Colors.white, size: 24),
-                            onPressed: cameraProvider.toggleCamera,
+                            onPressed: () {
+                              cameraProvider.toggleCamera();
+                              _capturePhoto();
+                            },
                           ),
                           IconButton(
                             icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 24),
@@ -164,28 +183,27 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> {
                   ),
                 ),
 
-                // Side Camera Creation Modes
+                // Side Toolbar (Instagram Creation Modes)
                 Positioned(
                   left: 16,
                   top: 100,
                   child: Column(
                     children: [
-                      _buildModeIcon(Icons.text_fields_rounded, "Create", CameraMode.create, cameraProvider),
-                      _buildModeIcon(Icons.loop_rounded, "Boomerang", CameraMode.boomerang, cameraProvider),
+                      _buildModeIcon(Icons.title_rounded, "Create", CameraMode.create, cameraProvider),
+                      _buildModeIcon(Icons.all_inclusive_rounded, "Boomerang", CameraMode.boomerang, cameraProvider),
                       _buildModeIcon(Icons.grid_view_rounded, "Layout", CameraMode.layout, cameraProvider),
                       _buildModeIcon(Icons.auto_awesome_rounded, "Effects", CameraMode.effects, cameraProvider),
                     ],
                   ),
                 ),
 
-                // Bottom Controls Area
+                // Bottom Controls Area (Instagram Capture Ring & Mode Selector)
                 Positioned(
                   bottom: 30,
                   left: 0,
                   right: 0,
                   child: Column(
                     children: [
-                      // Recording Duration Indicator if recording video
                       if (cameraProvider.isRecording) ...[
                         Text(
                           "00:${cameraProvider.recordingSeconds.toString().padLeft(2, '0')}",
@@ -197,22 +215,22 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          // Gallery Thumbnail Button
+                          // Bottom Left: Gallery Thumbnail
                           GestureDetector(
                             onTap: _pickFromGallery,
                             child: Container(
-                              width: 44,
-                              height: 44,
+                              width: 46,
+                              height: 46,
                               decoration: BoxDecoration(
                                 color: const Color(0xFF1A1A2E),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.white30, width: 1.5),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: Colors.white54, width: 1.5),
                               ),
                               child: const Icon(Icons.photo_library_rounded, color: Colors.white, size: 22),
                             ),
                           ),
 
-                          // Main Capture / Video Record Button
+                          // Bottom Center: 80dp Instagram Capture Ring
                           GestureDetector(
                             onTap: _capturePhoto,
                             onLongPressStart: (_) => _startVideoRecording(),
@@ -220,7 +238,7 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> {
                             child: Container(
                               width: 80,
                               height: 80,
-                              padding: const EdgeInsets.all(4),
+                              padding: const EdgeInsets.all(5),
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 border: Border.all(
@@ -237,17 +255,17 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> {
                             ),
                           ),
 
-                          // Secondary Filter Action
+                          // Bottom Right: Filter Effects Shortcut
                           IconButton(
-                            icon: const Icon(Icons.color_lens_outlined, color: Colors.white, size: 28),
-                            onPressed: () {},
+                            icon: const Icon(Icons.auto_awesome_outlined, color: Colors.white, size: 26),
+                            onPressed: _capturePhoto,
                           ),
                         ],
                       ),
 
                       const SizedBox(height: 20),
 
-                      // Horizontal Mode Selector
+                      // Horizontal Mode Selector Carousel
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
@@ -278,14 +296,13 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> {
       onTap: () {
         provider.setMode(mode);
         if (mode == CameraMode.create) {
-          // Open create mode directly
           _pickFromGallery();
         }
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
         child: Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: isSelected ? const Color(0xFF6C63FF) : Colors.black45,
             shape: BoxShape.circle,
@@ -299,16 +316,19 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> {
   Widget _buildModeSelector(String label, CameraMode mode, StoryCameraProvider provider) {
     final isSelected = provider.selectedMode == mode;
     return GestureDetector(
-      onTap: () => provider.setMode(mode),
+      onTap: () {
+        provider.setMode(mode);
+        _capturePhoto();
+      },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         child: Text(
           label,
           style: TextStyle(
             color: isSelected ? const Color(0xFF6C63FF) : Colors.white54,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            fontWeight: isSelected ? FontWeight.w900 : FontWeight.normal,
             fontSize: 12,
-            letterSpacing: 1.2,
+            letterSpacing: 1.5,
           ),
         ),
       ),
