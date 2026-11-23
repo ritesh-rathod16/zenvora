@@ -180,6 +180,7 @@ async def get_my_profile(current_user: User = Depends(get_current_user)):
     )
 
 @router.patch("/me/profile")
+@router.patch("/me/profile/")
 async def edit_profile(body: EditProfileRequest, current_user: User = Depends(get_current_user)):
     if body.full_name is not None:
         current_user.full_name = body.full_name.strip()
@@ -403,6 +404,7 @@ async def get_user_following(username: str, current_user: Optional[User] = Depen
     return result
 
 @router.post("/upload-profile-photo")
+@router.post("/upload-profile-photo/")
 @router.post("/avatar")
 async def upload_profile_photo(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     content = await file.read()
